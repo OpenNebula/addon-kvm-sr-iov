@@ -21,7 +21,7 @@ version 0.2
 Scripted Install
 
 A basic install script is provided with this driver. To install the driver
-execute "install" as root and follow the on screen instructions
+execute "install.sh" as root and follow the on screen instructions
 
 Manual Install
 
