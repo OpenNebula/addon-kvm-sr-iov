@@ -4,7 +4,6 @@ while [ $go -eq 1 ]
 do
   echo "Select an option:"
   echo "1 Install"
-  echo "2 Uninstall"
   echo "0 Quit"
   read option
   if [ "$option" == "0" ]; then
@@ -32,15 +31,28 @@ do
       vnm_dir="/var/lib/one/remotes/vnm/ovswitch"
     fi
     if [ -d $vmm_dir ]; then
+      echo -e "VMM directory already exists, making a backup... \c"
       mv $vmm_dir $vmm_dir.backup_$backup_str
+      echo "done."
     fi
+    echo -e "Copying VMM directory... \c"
     cp -a vmm $vmm_dir
     chown -R $username:$group $vmm_dir
+    echo "done."
     if [ -d $vnm_dir ]; then
+      echo -e "VNM directory already exists, making a backup... \c"
       mv $vnm_dir $vnm_dir.backup_$backup_str
+      echo "done."
     fi
+    echo -e "Copying VNM directory... \c"
     cp -a vnm $vnm_dir
     chown -R $username:$group $vnm_dir
+    echo "done."
+
+    echo ""
+    echo "-------------------------------------------------"
+    echo "Installation complete, beginning configuration..."
+    echo "-------------------------------------------------"
 
     echo "Specify the path to the VF map files: [/var/tmp/one/vmm/kvm-sriov/vf_maps]"
     read vf_map_path
@@ -116,6 +128,25 @@ do
         echo "Enter either y or n"
       fi
     done
+
+    echo -e "Calling onehost sync... \c"
+    sudo -u $username -H sh -c "onehost sync"
+    echo "done."
+
+    echo ""
+    echo "---------------------------------------------------------------------"
+    echo "To finish the configuration you need to complete the following steps:"
+    echo ""
+    echo "1. Edit the sudoers file on the VM hosts and add these lines: "
+    echo "   $username    ALL=(ALL) NOPASSWD: $vnm_dir/sbin/apply_pkey_map.sh *"
+    echo "   $username    ALL=(ALL) NOPASSWD: $vmm_dir/sbin/wr_guid.sh *"
+    echo ""
+    echo "2. Create map files for your virtual functions. Detailed instructions"
+    echo "   can be found here:"
+    echo "   http://wiki.chpc.ac.za/acelab:opennebula_sr-iov_vmm_driver"
+    echo "---------------------------------------------------------------------"
+    echo ""
+
     go=0
   fi
 
