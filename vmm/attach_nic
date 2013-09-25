@@ -59,7 +59,7 @@ if [ $vf_interface -gt 0 ]; then
     if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
       HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
       HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
-      sudo /usr/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT
+      sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT
       discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
     elif [ $DRIVER_MODE == "generic" ]; then
       ATTACH_ARGS="--domain $DOMAIN --type bridge --source $SOURCE --mac $MAC"

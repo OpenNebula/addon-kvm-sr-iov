@@ -124,7 +124,7 @@ $wspace</hostdev>" > /tmp/device.detach)
 
           HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
-          sudo /usr/sbin/wr_guid.sh clear_guid $vf_iface $HCA_DEV $HCA_PORT
+          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid $vf_iface $HCA_DEV $HCA_PORT
 
           rm /tmp/vf_interfaces/$root_iface/$vf_iface
 	  interface=$sriov_ifaces

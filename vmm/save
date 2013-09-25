@@ -115,7 +115,7 @@ if [ $exit_code -eq 0 ]; then
       if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
         HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
         HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-        sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+        sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
       fi
       guid=`cat /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}`
       discard=$(echo "${root_iface[$interface]},$guid" > $vm_path"device."$[$interface - 1])

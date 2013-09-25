@@ -116,7 +116,7 @@ else
 	  if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
             HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
             HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-	    sudo /usr/sbin/wr_guid.sh ${root_iface_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	    sudo $(dirname $0)/sbin/wr_guid.sh ${root_iface_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
 	  fi
           discard=$(virsh --connect $LIBVIRT_URI attach-device $domain $vm_path"device."$[$interface - 1])
           rm $vm_path"device."$[$interface - 1]
@@ -135,7 +135,7 @@ else
 	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
           HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-          sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
 	fi
         rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
 	discard=$(echo "${root_iface[$interface]}" > $vm_path"device."$[$interface - 1])

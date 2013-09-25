@@ -66,7 +66,7 @@ function destroy_and_monitor
       if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
         HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
         HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-	sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
       fi
       rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
     done

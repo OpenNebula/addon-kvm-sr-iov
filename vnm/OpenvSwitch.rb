@@ -51,15 +51,15 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
 		#If the network should be isolated
 		if @nic[:vlan_id]
 		  #If a vlan is specfied create the requested mapping
-		  cmd=`sudo /usr/sbin/apply_pkey_map.sh #{@nic[:vlan_id]} #{@one_deploy_id} #{vf_pos}`
+		  cmd=`sudo sbin/apply_pkey_map.sh #{@nic[:vlan_id]} #{@one_deploy_id} #{vf_pos}`
         	else
 		  #If no vlan is specified generate the vlan from the base vlan
 		  build_vlan_id=CONF[:start_vlan] + @nic[:network_id].to_i
-		  cmd=`sudo /usr/sbin/apply_pkey_map.sh #{build_vlan_id} #{@one_deploy_id} #{vf_pos}`
+		  cmd=`sudo sbin/apply_pkey_map.sh #{build_vlan_id} #{@one_deploy_id} #{vf_pos}`
 		end
               else
 		#If the network should not be isolated apply the default pkey
-                cmd=`sudo /usr/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
+                cmd=`sudo sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
               end
               vf_pos = vf_pos + 1
 

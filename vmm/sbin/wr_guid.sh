@@ -1,6 +1,8 @@
+#!/bin/bash
+
 # -------------------------------------------------------------------------- #
 # Copyright 2013, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod							     #
+# Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -13,35 +15,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#                                                                            #
-# Adapted from the OpenNebula Project's KVM VMM kvmrc file                   #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
-export LANG=C
+mac_address=$1
+vf_pos=$[$2 + 1]
+HCA_DEV=$3
+HCA_PORT=$4
 
-export LIBVIRT_URI=qemu:///system
 
-export QEMU_PROTOCOL=qemu+ssh
+if [ "$mac_address" == "clear_guid" ]; then
+#Clear the GUID so that it may be assigned to another VF
+  echo "0xffffffffffffffff" > /sys/class/infiniband/mlx4_$HCA_DEV/iov/ports/$HCA_PORT/admin_guids/$vf_pos
+else
+#Program the GUID with the IP encoded MAC
+  strip_mac=`echo "$mac_address" | sed "s/://g" | tr '[:upper:]' '[:lower:]'`
+  guid="0x$strip_mac"
+  echo "$guid" > /sys/class/infiniband/mlx4_$HCA_DEV/iov/ports/$HCA_PORT/admin_guids/$vf_pos
+fi
 
-# Seconds to wait after shutdown until timeout
-export SHUTDOWN_TIMEOUT=300
-
-# Uncomment this line to force VM cancellation after shutdown timeout
-#export FORCE_DESTROY=yes
-
-# Uncomment this line to force VM's without ACPI enabled to be destroyed
-# on shutdown
-#export CANCEL_NO_ACPI=yes
-
-export HPC_MODE=on
-
-export VF_MAPS_PATH=/var/tmp/one/vmm/kvm-sriov/vf_maps
-
-export DUMMY_BRIDGE=sriov_ib0
-
-export DUMMY_MAC_PREFIX=aa
-
-# Set the driver mode to generic or mlnx_ofed2
-export DRIVER_MODE=mlnx_ofed2
-
+exit 0
