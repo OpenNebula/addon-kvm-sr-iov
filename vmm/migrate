@@ -127,7 +127,7 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
 	sleep 3
       done
 #Attempt migration
-      exec_and_log_no_exit "virsh --connect $LIBVIRT_URI migrate --unsafe --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
+      exec_and_log_no_exit "virsh --connect $LIBVIRT_URI migrate --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
       "Could not migrate $deploy_id to $dest_host"
 
       if [ $exit_code -eq 0 ]; then
@@ -180,7 +180,7 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
       fi
     fi
   else
-    exec_and_log "virsh --connect $LIBVIRT_URI migrate --unsafe --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
+    exec_and_log "virsh --connect $LIBVIRT_URI migrate --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
       "Could not migrate $deploy_id to $dest_host"
   fi
 

@@ -156,18 +156,27 @@ do
     sudo -u $username -H sh -c "onehost sync"
     echo "done."
 
+    driver_name=`echo /var/lib/one/remotes/vmm/kvm-sriov | rev | cut -d "/" -f1 | rev`
     echo ""
-    echo "---------------------------------------------------------------------"
+    echo "--------------------------------------------------------------------------------------"
     echo "To finish the configuration you need to complete the following steps:"
     echo ""
     echo "1. Edit the sudoers file on the VM hosts and add these lines: "
-    echo "   $username    ALL=(ALL) NOPASSWD: $vnm_dir/sbin/apply_pkey_map.sh *"
-    echo "   $username    ALL=(ALL) NOPASSWD: $vmm_dir/sbin/wr_guid.sh *"
+    echo "   $username    ALL=(ALL) NOPASSWD: /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh *"
+    echo "   $username    ALL=(ALL) NOPASSWD: /var/tmp/one/vmm/$driver_name/sbin/wr_guid.sh *"
     echo ""
-    echo "2. Create map files for your virtual functions. Detailed instructions"
-    echo "   can be found here:"
+    echo "2. Create map files for your virtual functions. Detailed instructions can be found "
+    echo "   here:"
     echo "   http://wiki.chpc.ac.za/acelab:opennebula_sr-iov_vmm_driver"
-    echo "---------------------------------------------------------------------"
+    echo ""
+    echo "3. Add this VM_MAD to oned.conf:"
+    echo "   VM_MAD = ["
+    echo '       name       = "'$driver_name'",'
+    echo '       executable = "one_vmm_exec",'
+    echo '       arguments  = "-t 15 -r 0 kvm-sriov",'
+    echo '       default    = "vmm_exec/vmm_exec_kvm.conf",'
+    echo '       type       = "kvm" ]'
+    echo "--------------------------------------------------------------------------------------"
     echo ""
 
     go=0

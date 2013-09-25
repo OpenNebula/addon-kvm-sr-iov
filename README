@@ -31,7 +31,8 @@ Manual Install
 3. Edit the "remotes/vmm/<driver>/kvmrc" file to suit your environment
 4. Specify the available virtual functions in "remotes/vmm/<driver>/vf_maps/<file>"
 5. Specify the device and port mappings in "remotes/vmm/<driver>/vf_maps/<file>_ofed"
-6. Execute "onehost sync"
+6. Enable the VM_MAD in oned.conf
+7. Execute "onehost sync"
 
 Detailed install instructions can be found here:
 http://wiki.chpc.ac.za/acelab:opennebula_sr-iov_vmm_driver
