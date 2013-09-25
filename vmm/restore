@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#                                                                            #
+# Adapted from the OpenNebula Project's KVM VMM restore script               #
+# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+source $(dirname $0)/../../scripts_common.sh
+
+# Executes a command, if it fails returns error message
+# If a second parameter is present it is used as the error message when
+# the command fails
+function exec_and_log_no_exit
+{
+    message=$2
+
+    EXEC_LOG_ERR=`$1 2>&1 1>/dev/null`
+    EXEC_LOG_RC=$?
+
+    if [ $EXEC_LOG_RC -ne 0 ]; then
+        log_error "Command \"$1\" failed: $EXEC_LOG_ERR"
+
+        if [ -n "$2" ]; then
+            error_message "$2"
+        else
+            error_message "Error executing $1: $EXEC_LOG_ERR"
+        fi
+    fi
+    exit_code=$EXEC_LOG_RC
+}
+
+
+file=$1
+
+wspace="          "
+wspace1="                 "
+wspace2="                         "
+
+vm_path=`echo "$file" | rev | cut -c 11- | rev | sed "1 q;d"`
+domain=`cat $vm_path"domain"`
+free_vf="yes"
+
+sriov_ifaces=`ls $vm_path | grep device | wc -l`
+if [ $sriov_ifaces -gt 0 ]; then
+  if [ ! -d /tmp/vf_interfaces ]; then
+      mkdir /tmp/vf_interfaces
+  fi
+
+#Find VF interfaces in deployment file
+  interface=0
+  while [ $interface -lt $sriov_ifaces ]
+  do
+    interface=$[$interface + 1]
+#Lookup VM VF locations
+    root_iface[$interface]=`cat $vm_path"device."$[$interface - 1] | cut -d "," -f1`
+    root_iface_mac[$interface]=`cat $vm_path"device."$[$interface - 1] | cut -d "," -f2`
+#Make sure interface tracking dir exists
+    if [ ! -d /tmp/vf_interfaces/${root_iface[$interface]} ]; then
+        mkdir /tmp/vf_interfaces/${root_iface[$interface]}
+    fi
+    rem_root_iface=${root_iface[$interface]}
+    rem_mac=${root_iface_mac[$interface]}
+    rem_vf=$[$interface - 1]
+    
+    vf=`$(dirname $0)/wr_dev $rem_root_iface $vm_path $rem_vf $rem_mac`
+    vf_iface[$interface]=`echo $vf | cut -d ' ' -f4`
+    if [ ${vf_iface[$interface]} -eq -1 ]; then
+      free_vf="no"
+    fi
+  done
+fi
+
+if [ $free_vf == "no" ]; then
+  error_message "Could not restore from $file. No free VF."
+#If deployment fails remove any locks on SR-IOV devices that have been assigned
+    if [ $sriov_ifaces -gt 0 ]; then
+      interface=0
+      while [ $interface -lt $sriov_ifaces ]
+      do
+        interface=$[$interface + 1]
+        if [ ${vf_iface[$interface]} -gt -1 ]; then
+          rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+        fi
+      done
+    fi
+  exit -1
+else
+#Attempt restore
+  exec_and_log_no_exit "virsh --connect $LIBVIRT_URI restore $file" \
+    "Could not restore from $file"
+
+  if [ $exit_code -eq 0 ]; then
+#If success, attach VFs
+    if [ $sriov_ifaces -gt 0 ]; then
+      interface=0
+      while [ $interface -lt $sriov_ifaces ]
+      do
+        interface=$[$interface + 1]
+        if [ ${vf_iface[$interface]} -gt -1 ]; then
+	  if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+            HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+            HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+	    sudo /usr/sbin/wr_guid.sh ${root_iface_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	  fi
+          discard=$(virsh --connect $LIBVIRT_URI attach-device $domain $vm_path"device."$[$interface - 1])
+          rm $vm_path"device."$[$interface - 1]
+          sleep 3
+        fi
+      done
+      rm $vm_path"domain"
+    fi
+  else
+#If fail, release VF locks
+    if [ $sriov_ifaces -gt 0 ]; then  
+      interface=0
+      while [ $interface -lt $sriov_ifaces ]
+      do
+        interface=$[$interface + 1]
+	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+          HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+          HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+          sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	fi
+        rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+	discard=$(echo "${root_iface[$interface]}" > $vm_path"device."$[$interface - 1])
+      done
+    fi
+    exit $exit_code
+  fi
+fi

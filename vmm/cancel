@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod							     #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#                                                                            #
+# Adapted from the OpenNebula Project's KVM VMM cancel script                #
+# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+source $(dirname $0)/../../scripts_common.sh
+
+deploy_id=$1
+
+TIMEOUT=60
+
+function destroy_and_monitor
+{
+
+  sriov_ifaces=`virsh --connect $LIBVIRT_URI dumpxml $deploy_id | grep "<hostdev" | wc -l`
+  if [ $sriov_ifaces -gt 0 ]; then
+#Search for VF interfaces
+    interface=0
+    while [ $interface -lt $sriov_ifaces ]
+    do
+      interface=$[$interface + 1]
+#Lookup VF interface address info
+      bus=`virsh --connect $LIBVIRT_URI dumpxml $deploy_id | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f4 | sed "$interface q;d"`
+      slot=`virsh --connect $LIBVIRT_URI dumpxml $deploy_id | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f6 | sed "$interface q;d"`
+      function=`virsh --connect $LIBVIRT_URI dumpxml $deploy_id | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f8 | sed "$interface q;d"`
+
+      if [ `expr length $function` -eq 3 ]; then
+          function=0x0$(echo $function | cut -c 3-)
+      fi
+#Lookup VM VF locations
+      vf_map_file=`grep -R "$bus $slot $function" $VF_MAPS_PATH | cut -d ':' -f1`
+      root_iface[$interface]=`echo $vf_map_file | rev | cut -d '/' -f1 | rev`
+      vf_iface[$interface]=`cat $vf_map_file | grep "$bus $slot $function" -n | cut -d ':' -f1`
+      vf_iface[$interface]=$[${vf_iface[$interface]} - 1]
+    done
+  fi
+#Destroy VM
+  virsh --connect $LIBVIRT_URI destroy $deploy_id
+
+  virsh --connect $LIBVIRT_URI --readonly dominfo $deploy_id
+  [ "x$?" != "x0" ]
+#Remove VF locks
+  if [ $sriov_ifaces -gt 0 ]; then
+    interface=0
+    while [ $interface -lt $sriov_ifaces ]
+    do
+      interface=$[$interface + 1]
+      if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+        HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+        HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+	sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+      fi
+      rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+    done
+  fi
+
+}
+
+retry $TIMEOUT destroy_and_monitor
+
+if [ "x$?" != "x0" ]; then
+    error_message "Could not destroy $deploy_id"
+    exit 1
+fi

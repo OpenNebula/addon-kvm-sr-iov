@@ -1,0 +1,175 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#--------------------------------------------------------------------------- #
+
+domain=$1
+
+wspace1="       "
+wspace2="           "
+wspace3="               "
+
+#Get VM and host info
+vm_memory=`cat $domain | grep "<memory>" | cut -d ">" -f2 | cut -d "<" -f1`
+vm_cpus=`cat $domain | grep "<vcpu>" | cut -d ">" -f2 | cut -d "<" -f1`
+num_nodes=`numactl --hardware | grep size | wc -l`
+
+#Find the NUMA CPU mapping on the host
+position=0
+while [ $position -lt $num_nodes ] 
+do
+  position=$[$position + 1]
+  node_map[$position]=`lscpu | grep "NUMA node" | sed "$[$position + 1] q;d" | awk '{print $4}'`
+done
+
+#Find the amount memory on a NUMA node
+node_memory=`numactl --hardware | grep size | sed "1 q;d" | awk '{print $4}'`
+node_memory=$[$node_memory *1024]
+#Find the number of cores per node in the host
+cores_per_node=`lscpu | grep "Core(s) per socket:" | awk '{print $4}'`
+#Find the total number of cores in the host
+total_cpus=$[$cores_per_node * $num_nodes]
+
+#Write the huge pages memory backing stanza into the VM definition
+discard=`sed -i "3i\ $wspace1<memoryBacking>\\n$wspace2<hugepages\/>\\n$wspace2<nosharepages\/>\\n$wspace2<locked\/>\\n$wspace1 <\/memoryBacking> " $domain`
+
+if [ $vm_cpus -eq $total_cpus ]; then
+#If the VM has as many vCPUs and the host
+ 
+#Divide the VMs memory by the number of NUMA nodes in the host
+  node_mem=$[$vm_memory/$num_nodes]
+#Write the host's NUMA architecture into the VM definition
+  discard=`sed -i "3i\ $wspace2<\/numa>\\n$wspace1 <\/cpu>" $domain`
+  position=0
+  while [ $position -lt $num_nodes ]
+  do
+    position=$[$position + 1]
+    discard=`sed -i "3i\ $wspace3<cell cpus='${node_map[$position]}' memory='$node_mem'\/>" $domain`
+  done
+
+#Pass the host's CPU through to the VM
+  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'>\\n$wspace2 <numa>" $domain`
+
+#Search for the cputune stanza in the VM definition
+  cputune_line=`cat $domain | grep -n "<cputune>" | cut -d ":" -f1`
+  cputune_line=$[$cputune_line+1]
+  position=0
+#Pin the CPUs to NUMA groups
+  while [ $position -lt $vm_cpus ]
+  do
+    map=0
+    while [ $map -lt $num_nodes ]
+    do
+      #For each NUMA node, find its CPU bounds and check if the CPU falls in it. If it does, pin the CPU to that NUMA node
+      map=$[$map+1]
+      lower=`echo ${node_map[$map]} | cut -d "-" -f1`
+      upper=`echo ${node_map[$map]} | cut -d "-" -f2`
+      if [ $position -ge $lower ] && [ $position -le $upper ]; then
+	discard=`sed -i "${cputune_line}i\ $wspace3<vcpupin vcpu='$position' cpuset='${node_map[$map]}'\/>" $domain`
+	map=$num_nodes
+      fi
+    done
+    position=$[$position + 1]
+  done
+elif [ $vm_cpus -eq $cores_per_node ]; then
+#If the VM has the exactly the same number if vCPUs and CPUs in a NUMA node on the host
+
+#For each NUMA node build its affinity mask
+  position=0
+  while [ $position -lt $num_nodes ]
+  do
+    position=$[$position + 1]
+    cpu_mask[$position]=""
+    lower=`echo ${node_map[$position]} | cut -d "-" -f1`
+    upper=`echo ${node_map[$position]} | cut -d "-" -f2`
+    cpupos=0
+    while [ $cpupos -lt $total_cpus ]
+    do
+      if [ $cpupos -ge $lower ] && [ $cpupos -le $upper ]; then
+        cpu_mask[$position]="${cpu_mask[$position]}y"
+      else
+        cpu_mask[$position]="${cpu_mask[$position]}-"
+      fi
+      cpupos=$[$cpupos+1]
+    done
+  done
+
+#Prepare an array for counting the number of VMs bound to a NUMA node
+  mask_pos=0
+  while [ $mask_pos -lt $num_nodes ]
+  do
+    mask_pos=$[$mask_pos+1]
+    mask_count[$mask_pos]=0
+  done
+
+#Count the number of VMs bound to a NUMA node
+  num_vms=`virsh --connect $LIBVIRT_URI list | wc -l`
+  num_vms=$[$num_vms - 1]
+  position=2
+#Look at each VM on this host
+  while [ $position -lt $num_vms ]
+  do
+    position=$[$position + 1]
+    #Get the VM's ID and check its number of vCPUs
+    vmid=`virsh --connect $LIBVIRT_URI list | sed "$position q;d" | awk '{print $1}'`
+    vm_size=`virsh --connect $LIBVIRT_URI vcpuinfo $vmid | grep "CPU Affinity:" | wc -l`
+    #If the VM has as many vCPUs and a NUMA node on the host it is a special case and needs to be counted
+    if [ $vm_size -eq $cores_per_node ]; then
+      #Get the VMs CPU affinity mask
+      vm_mask=`virsh --connect $LIBVIRT_URI vcpuinfo $vmid | grep "CPU Affinity:" | sed "1 q;d" | awk '{print $3}'`
+      mask_pos=0
+      #Search for the VM's affinity mask in the lists of possible NUMA node affinity masks
+      while [ $mask_pos -lt $num_nodes ]
+      do
+        mask_pos=$[$mask_pos+1]
+        #If the VM mask matches a NUMA mask increment its usage counter
+        if [ "${cpu_mask[$mask_pos]}" == "$vm_mask" ]; then
+	  mask_count[$mask_pos]=$[${mask_count[$mask_pos]} + 1]
+        fi
+      done
+    fi
+  done
+
+#Find the lest used NUMA node
+  position=1
+  min=1
+  while [ $position -lt $num_nodes ]
+  do
+    position=$[$position + 1]
+    if [ ${mask_count[$position]} -lt ${mask_count[$min]} ]; then
+      min=$position
+    fi
+  done  
+
+#Pass the host's CPU through to the VM
+  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
+
+#Search for the cputune stanza in the VM definition  
+  cputune_line=`cat $domain | grep -n "<cputune>" | cut -d ":" -f1`
+  cputune_line=$[$cputune_line+1]
+  position=0
+#Pin the vCPUs to the least used NUMA node
+  while [ $position -lt $vm_cpus ]
+  do
+    discard=`sed -i "${cputune_line}i\ $wspace3<vcpupin vcpu='$position' cpuset='${node_map[$min]}'\/>" $domain`
+    position=$[$position + 1]
+  done
+
+else
+#In all other cases do not pin vCPUs, just pass the host CPU though.
+  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
+fi 

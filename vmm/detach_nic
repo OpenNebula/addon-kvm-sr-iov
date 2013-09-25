@@ -1,0 +1,143 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#                                                                            #
+# Adapted from the OpenNebula Project's KVM VMM detach_nic script            #
+# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+source $(dirname $0)/../../scripts_common.sh
+
+DOMAIN=$1
+MAC=$2
+
+if [ $DRIVER_MODE == "generic" ]; then
+
+#Build MAC prefix
+  vf=`echo $MAC | cut -c 7-`
+  if_prefix=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep -i $vf | cut -d "'" -f2 | cut -c 1-2 | tr '[:upper:]' '[:lower:]'`
+  mac_pos=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep -i $vf | cut -d "'" -f2 | cut -c 4-5 | tr '[:upper:]' '[:lower:]'`
+  du_prefix=`echo $DUMMY_MAC_PREFIX | tr '[:upper:]' '[:lower:]'`
+
+#If the interface is a SR-IOV device
+  if [ $du_prefix = $if_prefix ]; then
+#Build dummy MAC and find associated VF  
+    MAC=$(echo $MAC | cut -c 7-)
+    dummy_pos=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | egrep -oh '([a-f0-9]{2}\:*){6}' | grep -i $if_prefix":" | grep -n $MAC | cut -d ":" -f1`
+    MAC=$DUMMY_MAC_PREFIX":"$mac_pos":"$MAC
+    vf_pos=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep -n "<hostdev" | sed "$dummy_pos q;d" | cut -d ":" -f1`
+    vf_pos=$[vf_pos + 2]
+    bus=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | sed "$vf_pos q;d" | cut -d "'" -f4`
+    slot=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | sed "$vf_pos q;d" | cut -d "'" -f6`
+    function=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | sed "$vf_pos q;d" | cut -d "'" -f8`
+
+    if [ `expr length $function` -eq 3 ]; then
+      function=0x0$(echo $function | cut -c 3-)
+    fi
+#Lookup VM VF locations
+    vf_map_file=`grep -R "$bus $slot $function" $VF_MAPS_PATH | cut -d ':' -f1`
+    root_iface=`echo $vf_map_file | rev | cut -d '/' -f1 | rev`
+    vf_iface=`cat $vf_map_file | grep "$bus $slot $function" -n | cut -d ':' -f1`
+    vf_iface=$[$vf_iface - 1]
+
+#Write device stanza
+    wspace="          "
+    wspace1="                 "
+    wspace2="                         "
+#Write SR-IOV device stanza
+    discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+$wspace1<source>
+$wspace2<address bus='$bus' slot='$slot' function='$function'/>
+$wspace1</source>
+$wspace</hostdev>" > /tmp/device.detach)
+
+#Detach VF and release VF lock
+    discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach)
+    rm /tmp/vf_interfaces/$root_iface/$vf_iface
+  fi
+
+  DETACH_ARGS="--domain $DOMAIN --type bridge --mac $MAC"
+
+  exec_and_log "virsh --connect $LIBVIRT_URI detach-interface $DETACH_ARGS" \
+    "Could not detach NIC ($MAC) from $DOMAIN"
+
+elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+  sriov_dev=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep $MAC | wc -l`
+  if [ $sriov_dev -eq 0 ]; then
+    sriov_ifaces=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" | wc -l`
+    if [ $sriov_ifaces -gt 0 ]; then
+      #Search for VF interfaces
+      interface=0
+      while [ $interface -lt $sriov_ifaces ]
+      do
+	interface=$[$interface + 1]
+#Lookup VF interface address info
+        bus=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f4 | sed "$interface q;d"`
+        slot=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f6 | sed "$interface q;d"`
+        function=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f8 | sed "$interface q;d"`
+
+        if [ `expr length $function` -eq 3 ]; then
+          function=0x0$(echo $function | cut -c 3-)
+        fi
+#Lookup VM VF locations
+        vf_map_file=`grep -R "$bus $slot $function" $VF_MAPS_PATH | cut -d ':' -f1`
+        root_iface=`echo $vf_map_file | rev | cut -d '/' -f1 | rev`
+        vf_iface=`cat $vf_map_file | grep "$bus $slot $function" -n | cut -d ':' -f1`
+        vf_iface=$[$vf_iface - 1]
+
+	vf_mac=`cat /tmp/vf_interfaces/$root_iface/$vf_iface | cut -c 7-`
+        vm_mac=`echo $MAC | cut -c 7-`
+
+	if [ "$vf_mac" == "$vm_mac" ]; then
+	
+	  #Write device stanza
+	  wspace="          "
+	  wspace1="                 "
+	  wspace2="                         "
+	  #Write SR-IOV device stanza
+	  discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+$wspace1<source>
+$wspace2<address bus='$bus' slot='$slot' function='$function'/>
+$wspace1</source>
+$wspace</hostdev>" > /tmp/device.detach)
+
+	  #Detach VF and release VF lock
+	  #discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach)
+
+          exec_and_log "virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach" \
+          "Could not detach NIC ($MAC) from $DOMAIN"
+
+          HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
+          HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
+          sudo /usr/sbin/wr_guid.sh clear_guid $vf_iface $HCA_DEV $HCA_PORT
+
+          rm /tmp/vf_interfaces/$root_iface/$vf_iface
+	  interface=$sriov_ifaces
+	fi
+
+      done
+    else
+      error_message "Virtual or SR-IOV device could not be found!"
+    fi
+  else
+    DETACH_ARGS="--domain $DOMAIN --type bridge --mac $MAC"
+
+    exec_and_log "virsh --connect $LIBVIRT_URI detach-interface $DETACH_ARGS" \
+    "Could not detach NIC ($MAC) from $DOMAIN"
+  fi
+fi

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+    root_iface=$1
+    vm_path=$2
+    dev_id=$3
+    mac=$4
+    
+    LCK=/tmp/vf_interfaces/lock
+    exec 200>$LCK
+    flock -x 200
+    
+    wspace="          "
+    wspace1="                 "
+    wspace2="                         "
+
+#Make sure interface tracking dir exists
+    if [ ! -d /tmp/vf_interfaces/$root_iface ]; then
+        mkdir /tmp/vf_interfaces/$root_iface
+    fi
+
+    vf_iface=-1
+    bus="0x00"
+    slot="0x00"
+    function="0x00"
+    num_vf=`cat $VF_MAPS_PATH/$root_iface | wc -l`
+    position=0
+    if [ -d /tmp/vf_interfaces/$root_iface ]; then
+#Find an unused VF
+        while [ $position -lt $num_vf ]
+        do
+#If a free VF is found load its device address info and mark as used
+            if [ ! -f "/tmp/vf_interfaces/${root_iface}/$position" ]; then
+                bus=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f1`
+                slot=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f2`
+                function=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f3`
+                vf_iface=$position
+                touch /tmp/vf_interfaces/$root_iface/$position
+
+		echo "$mac" > /tmp/vf_interfaces/$root_iface/$position
+
+#Write VF stanza
+                discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+$wspace1<source>
+$wspace2<address bus='$bus' slot='$slot' function='$function'/>
+$wspace1</source>
+$wspace</hostdev>" > "$vm_path"device."$dev_id")
+
+                position=$num_vf
+            fi
+            position=$[$position + 1]
+        done
+    fi
+    echo $bus" "$slot" "$function" "$vf_iface
+

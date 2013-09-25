@@ -1,0 +1,162 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod							     #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#									     #
+# Adapted from the OpenNebula Project's KVM VMM deploy script		     #
+# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+source $(dirname $0)/../../scripts_common.sh
+
+domain=$1
+
+mkdir -p `dirname $domain`
+cat > $domain
+
+wspace="               "
+wspace1="                        "
+wspace2="                                "
+
+LCK=/tmp/vf_interfaces/lock
+exec 200>$LCK
+flock -x 200
+
+#Apply HPC VM settings if HPC_MODE is enabled
+if [ "$HPC_MODE" == "on" ]; then
+  discard=`$(dirname $0)/hpc_config $domain`
+fi
+
+#Make sure VF tracking dir exists
+sriov_ifaces=`cat $domain | grep sriov | cut -d "'" -f2 | cut -d '_' -f2 | wc -l`
+if [ $sriov_ifaces -gt 0 ]; then
+  if [ ! -d /tmp/vf_interfaces ]; then
+      mkdir /tmp/vf_interfaces
+  fi
+
+  ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
+
+#Find VF interfaces in deployment file
+  interface=0
+  while [ $interface -lt $sriov_ifaces ]
+  do
+    interface=$[$interface + 1]
+    root_iface[$interface]=`cat $domain | grep sriov | cut -d "'" -f2 | cut -d '_' -f2 | sed "1 q;d"`
+    if [ $ovs_installed -gt 0 ]; then
+      ovs_bridge=`sudo ovs-vsctl show | grep "sriov_$root_iface" | wc -l`
+    else
+      ovs_bridge=0
+    fi
+#Make sure interface tracking dir exists
+    if [ ! -d /tmp/vf_interfaces/${root_iface[$interface]} ]; then
+        mkdir /tmp/vf_interfaces/${root_iface[$interface]}
+    fi
+ 
+#Build VF stanza for deployment
+    vf_iface[$interface]=-1
+    bus="0x00"
+    slot="0x00"
+    function="0x00"
+    num_vf=`cat $VF_MAPS_PATH/${root_iface[$interface]} | wc -l`
+    position=0
+    if [ -d /tmp/vf_interfaces/${root_iface[$interface]} ]; then
+#Find an unused VF
+	while [ $position -lt $num_vf ] 
+        do
+#If a free VF is found load its device address info and mark as used
+	    if [ ! -f "/tmp/vf_interfaces/${root_iface[$interface]}/$position" ]; then    
+		bus=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f1`
+	        slot=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f2`
+	        function=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f3`
+	        vf_iface[$interface]=$position
+	        touch /tmp/vf_interfaces/${root_iface[$interface]}/$position
+	        position=$num_vf
+	    fi
+	    position=$[$position + 1]
+        done
+    fi
+
+    if [ ${vf_iface[$interface]} -gt -1 ]; then
+      sriov_line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
+      count=0
+      found_end=""
+      while [[ $found_end != "interface>" ]]
+  	do
+	  count=$[$count + 1]
+	  found_end=`cat $domain | grep -A $count sriov | grep "</interface>" | cut  -d '/' -f2 | sed "1 q;d"`
+	done
+#Find SR-IOV interfcace in deployment, extract MAC and remove its bridge stanza
+      setmac=`cat $domain | grep -A $count sriov | egrep -oh '([a-f0-9]{2}\:*){6}' | sed "1 q;d"`
+      line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
+      line=$[$line - 1]
+      count=$[$count + 2]
+      while [ $count -gt 0 ]
+      do
+	count=$[$count - 1]
+	discard=$(sed -i "${line}d" $domain)
+      done
+
+#Calculate MAC with SR-IOV prefix      
+      dummymac=$(echo $setmac | cut -c 7-)
+      dummymac=$DUMMY_MAC_PREFIX":0"$[$interface - 1]":"$dummymac
+#Write SR-IOV device stanza
+      discard=$(sed -i "${line}i\ $wspace<hostdev mode='subsystem' type='pci'>\\n$wspace1<source>\\n$wspace2<address bus='$bus' slot='$slot' function='$function'\/>\\n$wspace1<\/source>\\n$wspace<\/hostdev>" $domain)
+
+      if [ $DRIVER_MODE == "generic" ]; then
+        line=`cat $domain | grep -n "</devices>" | cut -d ":" -f1`
+        #Write dummy bridge stanza to pass through the IP address encoded in the MAC
+
+        if [ $ovs_bridge -eq 0 ]; then
+          discard=$(sed -i "${line}i\ $wspace<interface type='bridge'>\\n$wspace1<source bridge='$DUMMY_BRIDGE'/>\\n$wspace1<mac address='$dummymac'/>\\n$wspace</interface>" $domain)
+        else
+          discard=$(sed -i "${line}i\ $wspace<interface type='bridge'>\\n$wspace1<source bridge='$DUMMY_BRIDGE'/>\\n$wspace1<virtualport type='openvswitch'/>\\n$wspace1<mac address='$dummymac'/>\\n$wspace</interface>" $domain)
+	fi
+      elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+	echo "$dummymac" > /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+	HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+	HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+	sudo /usr/sbin/wr_guid.sh $dummymac ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+      fi
+    fi
+  done
+fi
+
+data=`virsh --connect $LIBVIRT_URI create $domain`
+
+if [ "x$?" = "x0" ]; then
+    echo $data | sed 's/Domain //' | sed 's/ created from .*$//'
+else
+    error_message "Could not create domain from $domain"
+#If deployment fails remove any locks on SR-IOV devices that have been assigned    
+    if [ $sriov_ifaces -gt 0 ]; then
+      interface=0
+      while [ $interface -lt $sriov_ifaces ]
+      do
+        interface=$[$interface + 1]
+	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+	  HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+          HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+          sudo /usr/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+        fi
+        if [ ${vf_iface[$interface]} -gt -1 ]; then
+          rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+        fi
+      done
+    fi
+    exit -1
+fi
+

@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# -------------------------------------------------------------------------- #
+# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#                                                                            #
+# Adapted from the OpenNebula Project's KVM VMM attach_nic script            #
+# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#--------------------------------------------------------------------------- #
+
+source $(dirname $0)/kvmrc
+source $(dirname $0)/../../scripts_common.sh
+
+DOMAIN=$1
+MAC=$2
+SOURCE=$3
+MODEL=$4
+
+wspace="          "
+wspace1="                 "
+wspace2="                         "
+
+#If SR-IOV interface
+vf_interface=`echo $SOURCE | grep sriov | wc -l`
+if [ $vf_interface -gt 0 ]; then
+  ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
+  if [ $ovs_installed -gt 0 ]; then
+    ovs_bridge=`sudo ovs-vsctl show | grep $SOURCE | wc -l `
+  else
+    ovs_bridge=0
+  fi
+
+#Build VF info 
+  MAC=$(echo $MAC | cut -c 7-)
+  MAC=$DUMMY_MAC_PREFIX":10:"$MAC
+
+  root_iface=`echo $SOURCE | cut -d "_" -f2`
+
+  vf=`$(dirname $0)/wr_dev $root_iface /tmp/ attach $MAC`
+  vf_iface=`echo $vf | cut -d ' ' -f4`
+#Attach VF is available  
+  if [ $vf_iface -eq -1 ]; then
+    error_message "No free VF!"
+    exit -1
+  else
+
+    if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+      HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
+      HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
+      sudo /usr/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT
+      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
+    elif [ $DRIVER_MODE == "generic" ]; then
+      ATTACH_ARGS="--domain $DOMAIN --type bridge --source $SOURCE --mac $MAC"
+      if [ "$MODEL" != "-" ]; then
+        ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
+      fi
+      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
+      exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
+          "Could not attach NIC ($MAC) to $DOMAIN"
+    fi
+
+    rm /tmp/device.attach
+  fi
+  SOURCE=$DUMMY_BRIDGE
+else
+  ATTACH_ARGS="--domain $DOMAIN --type bridge --source $SOURCE --mac $MAC"
+
+  if [ "$MODEL" != "-" ]; then
+      ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
+  fi
+
+  exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
+      "Could not attach NIC ($MAC) to $DOMAIN"
+fi
