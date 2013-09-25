@@ -1,4 +1,10 @@
 #!/bin/bash
+
+if [[ $EUID -ne 0 ]]; then
+  echo "You must execute this script as root!"
+  exit 1
+fi
+
 go=1
 while [ $go -eq 1 ]
 do
