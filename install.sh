@@ -79,7 +79,7 @@ do
       echo "done."
     fi
     echo -e "Copying VMM directory... \c"
-    p -a vmm $vmm_dir
+    cp -a vmm $vmm_dir
     chown -R $username:$group $vmm_dir
     echo "done."
     if [ "$part_supp" == "y" ]; then
