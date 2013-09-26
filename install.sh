@@ -32,18 +32,38 @@ do
   if [ "$option" == "0" ]; then
     go=0
   elif [ "$option" == "1" ]; then
+    backup_str=`date +%s`
+
     echo "OpenNebula username: [oneadmin]"
     read username
     echo "OpenNebula group: [cloud]"
     read group
     echo "Enter VMM install directory: [/var/lib/one/remotes/vmm/kvm-sriov]"
     read vmm_dir
-    echo "Enter Open vSwitch VNM directory: [/var/lib/one/remotes/vnm/ovswitch]"
-    read vnm_dir
-    backup_str=`date +%s`
-    if [ "$username" == "" ]; then
-      username="oneadmin"
-    fi
+
+
+    echo "Do you want to install Infiniband partitions support? y/[n]"
+    sel_err=1
+    while [ $sel_err -eq 1 ]
+    do
+      read part_supp
+      if [ "$part_supp" == "" ]; then
+        part_supp="n"
+      fi
+      if [ "$part_supp" == "y" ]; then
+	echo "Enter Open vSwitch VNM directory: [/var/lib/one/remotes/vnm/ovswitch]"
+        read vnm_dir
+        if [ "$username" == "" ]; then
+          username="oneadmin"
+        fi
+        sel_err=0
+      elif [ "$part_supp" == "n" ]; then
+        sel_err=0
+      else
+        echo "Enter either y or n"
+      fi
+    done
+
     if [ "$group" == "" ]; then
       group="cloud"
     fi
@@ -55,22 +75,24 @@ do
     fi
     if [ -d $vmm_dir ]; then
       echo -e "VMM directory already exists, making a backup... \c"
-      mv $vmm_dir $vmm_dir.backup_$backup_str
+      #mv $vmm_dir $vmm_dir.backup_$backup_str
       echo "done."
     fi
     echo -e "Copying VMM directory... \c"
-    cp -a vmm $vmm_dir
+    #p -a vmm $vmm_dir
     chown -R $username:$group $vmm_dir
     echo "done."
-    if [ -d $vnm_dir ]; then
-      echo -e "VNM directory already exists, making a backup... \c"
-      mv $vnm_dir $vnm_dir.backup_$backup_str
+    if [ "$part_supp" == "y" ]; then
+      if [ -d $vnm_dir ]; then
+        echo -e "VNM directory already exists, making a backup... \c"
+        mv $vnm_dir $vnm_dir.backup_$backup_str
+        echo "done."
+      fi
+      echo -e "Copying VNM directory... \c"
+      cp -a vnm $vnm_dir
+      chown -R $username:$group $vnm_dir
       echo "done."
     fi
-    echo -e "Copying VNM directory... \c"
-    cp -a vnm $vnm_dir
-    chown -R $username:$group $vnm_dir
-    echo "done."
 
     echo ""
     echo "-------------------------------------------------"
