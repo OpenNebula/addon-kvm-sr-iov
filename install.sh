@@ -75,11 +75,11 @@ do
     fi
     if [ -d $vmm_dir ]; then
       echo -e "VMM directory already exists, making a backup... \c"
-      #mv $vmm_dir $vmm_dir.backup_$backup_str
+      mv $vmm_dir $vmm_dir.backup_$backup_str
       echo "done."
     fi
     echo -e "Copying VMM directory... \c"
-    #p -a vmm $vmm_dir
+    p -a vmm $vmm_dir
     chown -R $username:$group $vmm_dir
     echo "done."
     if [ "$part_supp" == "y" ]; then
