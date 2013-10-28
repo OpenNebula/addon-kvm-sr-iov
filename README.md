@@ -34,7 +34,7 @@ Demonstration Video:
 
 ## Installation 
 
-1- Download and extract the [SR-IOV KVM Driver](https://github.com/OpenNebula/addon-kvm-sr-iov/archive/version-0.2.zip) to a temporary location
+1- Download and extract the [SR-IOV KVM Driver](https://github.com/OpenNebula/addon-kvm-sr-iov/archive/version_0.2.tar.gz) to a temporary location
 
 2- As root execute _/install.sh_ and follow the on-screen instructions
 
@@ -151,7 +151,7 @@ The driver assumes the IB fabric has been correctly configured with the requeste
 
 ## Driver
 
-  * [SR-IOV KVM Driver v0.2](https://github.com/OpenNebula/addon-kvm-sr-iov/archive/version-0.2.zip)
+  * [SR-IOV KVM Driver v0.2](https://github.com/OpenNebula/addon-kvm-sr-iov/archive/version_0.2.tar.gz)
 
 ### Context Script Modification
 
