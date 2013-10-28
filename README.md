@@ -49,31 +49,32 @@ This add-on has been tested with:
 
 ## Installation
 
-1. Clone Download and extract SR-IOV KVM Driver v0.2 to a temporary location
+1- Clone Download and extract SR-IOV KVM Driver v0.2 to a temporary location
 
-2. As root execute install.sh and follow the on-screen instructions
+2- As root execute install.sh and follow the on-screen instructions
 
-3. Edit /etc/one/oned.conf and add:
+3- Edit /etc/one/oned.conf and add:
 
-  VM_MAD = [
-      name       = "kvm_sriov",
-      executable = "one_vmm_exec",
-      arguments  = "-t 15 -r 0 kvm-sriov",
-      default    = "vmm_exec/vmm_exec_kvm.conf",
-      type       = "kvm" ]
-4. Use this guide to extract the bus slot and function addresses for the virtual functions: https://access.redhat.com/site/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Virtualization_Host_Configuration_and_Guest_Installation_Guide/sect-Virtualization_Host_Configuration_and_Guest_Installation_Guide-SR_IOV-How_SR_IOV_Libvirt_Works.html
+	VM_MAD = [
+		name       = "kvm_sriov",
+		executable = "one_vmm_exec",
+		arguments  = "-t 15 -r 0 kvm-sriov",
+		default    = "vmm_exec/vmm_exec_kvm.conf",
+		type       = "kvm" ]
 
-5. In the /var/lib/one/remotes/vmm/kvm-sriov/vf_maps directory create a file with the name of the VF's root device, e.g. "ib0". In the file write the bus, slot and function for each VF you want the driver to use. The address must be in hexadecimal. Each line in the file represents a VF, the bus, slot and function addresses are separated by a single space character " ". There must be no additional text, spaces or lines in the table.
+4- Use this guide to extract the bus slot and function addresses for the virtual functions: [Virtualization Host Configuration and Guest Installation Guide - SR_IOV - How SR_IOV_Libvirt Works](https://access.redhat.com/site/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Virtualization_Host_Configuration_and_Guest_Installation_Guide/sect-Virtualization_Host_Configuration_and_Guest_Installation_Guide-SR_IOV-How_SR_IOV_Libvirt_Works.html "Virtualization Host Configuration and Guest Installation Guide - SR_IOV - How SR_IOV_Libvirt Works")
+
+5- In the /var/lib/one/remotes/vmm/kvm-sriov/vf_maps directory create a file with the name of the VF's root device, e.g. "ib0". In the file write the bus, slot and function for each VF you want the driver to use. The address must be in hexadecimal. Each line in the file represents a VF, the bus, slot and function addresses are separated by a single space character " ". __There may not be additional text, spaces or lines in the table.__
 
 Example, four virtual functions:
 
 /var/lib/one/remotes/vmm/kvm-sriov/vf_maps/ib0:
 
-  0x07 0x00 0x01
-  0x07 0x00 0x02
-  0x07 0x00 0x03
-  0x07 0x00 0x04
-6. If using the driver in "mlnx_ofed2" mode you need to specify the device and port number of the interface. To find the device ID execute:
+	0x07 0x00 0x01
+	0x07 0x00 0x02
+	0x07 0x00 0x03
+	0x07 0x00 0x04
+6- If using the driver in "mlnx_ofed2" mode you need to specify the device and port number of the interface. To find the device ID execute:
 
   ls /sys/class/infiniband
 You will see a list of Infiniband devices "mlx4_<x>". The device ID is the <x>. To find the port ID execute:
@@ -87,25 +88,30 @@ Example,
 
 /var/lib/one/remotes/vmm/kvm-sriov/vf_maps/ib0_ofed:
 
- device 0
- port   1
-7. On VM hosts using this driver edit /etc/libvirt/qemu.conf and change the user and group to "root" then restart libvirtd.
+	device 0
+	port   1
 
-8. On the head node restart OpenNebula.
+7- On VM hosts using this driver edit /etc/libvirt/qemu.conf and change the user and group to "root" then restart libvirtd.
 
-9. Create a virtual network in OpenNebula. The "Bridge" field must contain "sriov_" prepended to the name of the file that contains the VF mapings, e.g. "sriov_ib0"
+8- On the head node restart OpenNebula.
 
-10. Update the contextualisation scripts for the VMs with the code provided here.
+9- Create a virtual network in OpenNebula. The "Bridge" field must contain "sriov_" prepended to the name of the file that contains the VF mapings, e.g. "sriov_ib0"
 
-11. Create hosts to use the "kvm_sriov" driver.
+10- Update the contextualisation scripts for the VMs with the code provided here.
+
+11- Create hosts to use the "kvm_sriov" driver.
 
 ## Configuration
 
-VF_MAPS_PATH	The path where the driver must look for the VF map files
-DUMMY_BRIDGE	The bridge to which the dummy interfaces will be connected to
-DUMMY_MAC_PREFIX	The prefix used to differentiate SR-IOV devices from virtual devices
-DRIVER_MODE	Either "generic" or "mlnx_ofed2". Generic mode passes IP address to VMs through dummy interfaces. Mlnx_ofed2 mode encodes IP address in VF GUIDs
-HPC_MODE	Either "on" or "off". HPC mode improves the performance of VMs. The host's CPU is passed through to the VM, may break migration. The memory backing for the VM is set to huge pages, additional host configuration required. If a VM has as many vCPUs and the host has CPUs it is detected as a special case and the hosts NUMA architecture is passed to the VM. If a VM has as many vCPUs as a single NUMA node on the host the VM's CPUs will be pinned to a NUMA node.
+VF_MAPS_PATH:	The path where the driver must look for the VF map files
+
+DUMMY_BRIDGE:	The bridge to which the dummy interfaces will be connected to
+
+DUMMY_MAC_PREFIX:	The prefix used to differentiate SR-IOV devices from virtual devices
+
+DRIVER_MODE:	Either "generic" or "mlnx_ofed2". Generic mode passes IP address to VMs through dummy interfaces. Mlnx_ofed2 mode encodes IP address in VF GUIDs
+
+HPC_MODE:	Either "on" or "off". HPC mode improves the performance of VMs. The host's CPU is passed through to the VM, may break migration. The memory backing for the VM is set to huge pages, additional host configuration required. If a VM has as many vCPUs and the host has CPUs it is detected as a special case and the hosts NUMA architecture is passed to the VM. If a VM has as many vCPUs as a single NUMA node on the host the VM's CPUs will be pinned to a NUMA node.
 
 ## License
 
