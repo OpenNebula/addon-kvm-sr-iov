@@ -49,6 +49,7 @@ discard=`sed -i "3i\ $wspace1<memoryBacking>\\n$wspace2<hugepages\/>\\n$wspace2<
 
 if [ $vm_cpus -eq $total_cpus ]; then
 #If the VM has as many vCPUs and the host
+  discard=`sed -i "3i\ $wspace1<numatune>\\n$wspace2<memory mode='interleave' nodeset='0-$[$num_nodes-1]'/>\\n$wspace1 <\/numatune> " $domain`
  
 #Divide the VMs memory by the number of NUMA nodes in the host
   node_mem=$[$vm_memory/$num_nodes]
@@ -155,6 +156,7 @@ elif [ $vm_cpus -eq $cores_per_node ]; then
     fi
   done  
 
+  discard=`sed -i "3i\ $wspace1<numatune>\\n$wspace2<memory mode='preferred' nodeset='$[$min-1]'/>\\n$wspace1 <\/numatune> " $domain`
 #Pass the host's CPU through to the VM
   discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
 
