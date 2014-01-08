@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Copyright 2014, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -25,19 +25,20 @@ source $(dirname $0)/../../scripts_common.sh
 
 DOMAIN=$1
 MAC=$2
-SOURCE=$3
-MODEL=$4
+BRIDGE=$3
+THE_MODEL=$4
+NET_DRV=$5
 
 wspace="          "
 wspace1="                 "
 wspace2="                         "
 
 #If SR-IOV interface
-vf_interface=`echo $SOURCE | grep sriov | wc -l`
+vf_interface=`echo $BRIDGE | grep sriov | wc -l`
 if [ $vf_interface -gt 0 ]; then
   ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
   if [ $ovs_installed -gt 0 ]; then
-    ovs_bridge=`sudo ovs-vsctl show | grep $SOURCE | wc -l `
+    ovs_bridge=`sudo ovs-vsctl show | grep $BRIDGE | wc -l `
   else
     ovs_bridge=0
   fi
@@ -46,7 +47,7 @@ if [ $vf_interface -gt 0 ]; then
   MAC=$(echo $MAC | cut -c 7-)
   MAC=$DUMMY_MAC_PREFIX":10:"$MAC
 
-  root_iface=`echo $SOURCE | cut -d "_" -f2`
+  root_iface=`echo $BRIDGE | cut -d "_" -f2`
 
   vf=`$(dirname $0)/wr_dev $root_iface /tmp/ attach $MAC`
   vf_iface=`echo $vf | cut -d ' ' -f4`
@@ -62,7 +63,7 @@ if [ $vf_interface -gt 0 ]; then
       sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT
       discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
     elif [ $DRIVER_MODE == "generic" ]; then
-      ATTACH_ARGS="--domain $DOMAIN --type bridge --source $SOURCE --mac $MAC"
+      ATTACH_ARGS="--domain $DOMAIN --type bridge --source $BRIDGE --mac $MAC"
       if [ "$MODEL" != "-" ]; then
         ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
       fi
@@ -73,14 +74,37 @@ if [ $vf_interface -gt 0 ]; then
 
     rm /tmp/device.attach
   fi
-  SOURCE=$DUMMY_BRIDGE
+  BRIDGE=$DUMMY_BRIDGE
 else
-  ATTACH_ARGS="--domain $DOMAIN --type bridge --source $SOURCE --mac $MAC"
-
-  if [ "$MODEL" != "-" ]; then
-      ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
+  if [ "$THE_MODEL" != "-" ]; then
+      MODEL="<model type='$THE_MODEL'/>"
   fi
 
-  exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
-      "Could not attach NIC ($MAC) to $DOMAIN"
+  if [ "$NET_DRV" = "ovswitch" ]; then
+      VIRTUALPORT="<virtualport type='openvswitch'/>"
+  fi
+
+
+  DEVICE=$(cat <<EOF
+<interface type='bridge'>
+    <source bridge='$BRIDGE'/>
+    <mac address='$MAC'/>
+    $MODEL
+    $VIRTUALPORT
+</interface>
+EOF
+)
+
+  ATTACH_CMD=$(cat <<EOF
+virsh --connect $LIBVIRT_URI attach-device $DOMAIN <(
+cat <<EOT
+$DEVICE
+EOT
+)
+EOF
+)
+
+  multiline_exec_and_log "$ATTACH_CMD" \
+    "Could not attach $SOURCE ($TARGET) to $DOMAIN"
+
 fi
