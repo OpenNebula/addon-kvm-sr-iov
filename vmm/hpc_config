@@ -45,7 +45,7 @@ cores_per_node=`lscpu | grep "Core(s) per socket:" | awk '{print $4}'`
 total_cpus=$[$cores_per_node * $num_nodes]
 
 #Write the huge pages memory backing stanza into the VM definition
-discard=`sed -i "3i\ $wspace1<memoryBacking>\\n$wspace2<hugepages\/>\\n$wspace2<nosharepages\/>\\n$wspace2<locked\/>\\n$wspace1 <\/memoryBacking> " $domain`
+discard=`sed -i "3i\ $wspace1<memoryBacking>\\n$wspace2<hugepages\/>\\n$wspace2<nosharepages\/>\\n$wspace1 <\/memoryBacking> " $domain`
 
 if [ $vm_cpus -eq $total_cpus ]; then
 #If the VM has as many vCPUs and the host
