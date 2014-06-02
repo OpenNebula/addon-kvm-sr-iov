@@ -1,6 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod							     #
+# Copyright 2002-2014, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -13,10 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#									     #
-# Adapted from the OpenNebula Project's OpenvSwitch.rb script		     #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
+
 require 'OpenNebulaNetwork'
 
 class OpenvSwitchVLAN < OpenNebulaNetwork
@@ -31,17 +28,17 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
     def initialize(vm, deploy_id = nil, hypervisor = nil)
         super(vm,XPATH_FILTER,deploy_id,hypervisor)
         @locking = false
-	#Add deploy ID global variable
 	@one_deploy_id = deploy_id
     end
 
     def activate
         lock
 
-	vf_pos = 0
+	vf_pos = 0	
 
         process do |nic|
             @nic = nic
+
 	    #Check if this nic contains the sriov keyword
 	    str=@nic[:bridge]
 	    str=str.slice! "sriov"
@@ -59,13 +56,23 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
 		end
               else
 		#If the network should not be isolated apply the default pkey
-                cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
+		cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
               end
               vf_pos = vf_pos + 1
 
 	    else
+
+              if @nic[:tap].nil?
+                  STDERR.puts "No tap device found for nic #{@nic[:nic_id]}"
+                  unlock
+                  exit 1
+              end
+
               # Apply VLAN
-              tag_vlan if @nic[:vlan] == "YES"
+              if @nic[:vlan] == "YES"
+                  tag_vlan
+                  tag_trunk_vlans
+              end
 
               # Prevent Mac-spoofing
               mac_spoofing
@@ -108,7 +115,22 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
         run cmd
     end
 
+    def tag_trunk_vlans
+        range = @nic[:vlan_tagged_id]
+        if range? range
+            ovs_vsctl_cmd = "#{COMMANDS[:ovs_vsctl]} set Port #{@nic[:tap]}"
+
+            cmd = "#{ovs_vsctl_cmd} trunks=#{range}"
+            run cmd
+
+            cmd = "#{ovs_vsctl_cmd} vlan_mode=native-untagged"
+            run cmd
+        end
+    end
+
     def mac_spoofing
+        add_flow("in_port=#{port},arp,dl_src=#{@nic[:mac]}",:drop,45000)
+        add_flow("in_port=#{port},arp,dl_src=#{@nic[:mac]},nw_src=#{@nic[:ip]}",:normal,46000)
         add_flow("in_port=#{port},dl_src=#{@nic[:mac]}",:normal,40000)
         add_flow("in_port=#{port}",:drop,39000)
     end
@@ -192,6 +214,6 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
     end
 
     def range?(range)
-        !range.match(/^\d+(,\d+)*$/).nil?
+        !range.to_s.match(/^\d+(,\d+)*$/).nil?
     end
 end

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Copyright 2014, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -58,8 +58,8 @@ free_vf="yes"
 
 sriov_ifaces=`ls $vm_path | grep device | wc -l`
 if [ $sriov_ifaces -gt 0 ]; then
-  if [ ! -d /tmp/vf_interfaces ]; then
-      mkdir /tmp/vf_interfaces
+  if [ ! -d /dev/shm/vf_interfaces ]; then
+      mkdir /dev/shm/vf_interfaces
   fi
 
 #Find VF interfaces in deployment file
@@ -71,14 +71,23 @@ if [ $sriov_ifaces -gt 0 ]; then
     root_iface[$interface]=`cat $vm_path"device."$[$interface - 1] | cut -d "," -f1`
     root_iface_mac[$interface]=`cat $vm_path"device."$[$interface - 1] | cut -d "," -f2`
 #Make sure interface tracking dir exists
-    if [ ! -d /tmp/vf_interfaces/${root_iface[$interface]} ]; then
-        mkdir /tmp/vf_interfaces/${root_iface[$interface]}
+    if [ ! -d /dev/shm/vf_interfaces/${root_iface[$interface]} ]; then
+        mkdir /dev/shm/vf_interfaces/${root_iface[$interface]}
     fi
     rem_root_iface=${root_iface[$interface]}
     rem_mac=${root_iface_mac[$interface]}
     rem_vf=$[$interface - 1]
     
     vf=`$(dirname $0)/wr_dev $rem_root_iface $vm_path $rem_vf $rem_mac`
+
+    bus=`echo $vf | cut -d ' ' -f1`
+    bus=`echo $bus | cut -c 3-`
+    slot=`echo $vf | cut -d ' ' -f2`
+    slot=`echo $slot | cut -c 3-`
+    function=`echo $vf | cut -d ' ' -f3`
+    function=`echo $function | cut -c 4-`
+    mellanox_address[$interface]="0000":$bus":"$slot"."$function
+
     vf_iface[$interface]=`echo $vf | cut -d ' ' -f4`
     if [ ${vf_iface[$interface]} -eq -1 ]; then
       free_vf="no"
@@ -95,7 +104,7 @@ if [ $free_vf == "no" ]; then
       do
         interface=$[$interface + 1]
         if [ ${vf_iface[$interface]} -gt -1 ]; then
-          rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+          rm /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
         fi
       done
     fi
@@ -116,7 +125,7 @@ else
 	  if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
             HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
             HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-	    sudo $(dirname $0)/sbin/wr_guid.sh ${root_iface_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	    sudo $(dirname $0)/sbin/wr_guid.sh ${root_iface_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
 	  fi
           discard=$(virsh --connect $LIBVIRT_URI attach-device $domain $vm_path"device."$[$interface - 1])
           rm $vm_path"device."$[$interface - 1]
@@ -135,9 +144,9 @@ else
 	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
           HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
 	fi
-        rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+        rm /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
 	discard=$(echo "${root_iface[$interface]}" > $vm_path"device."$[$interface - 1])
       done
     fi

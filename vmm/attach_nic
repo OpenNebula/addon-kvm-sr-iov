@@ -49,7 +49,7 @@ if [ $vf_interface -gt 0 ]; then
 
   root_iface=`echo $BRIDGE | cut -d "_" -f2`
 
-  vf=`$(dirname $0)/wr_dev $root_iface /tmp/ attach $MAC`
+  vf=`$(dirname $0)/wr_dev $root_iface /dev/shm/ attach $MAC`
   vf_iface=`echo $vf | cut -d ' ' -f4`
 #Attach VF is available  
   if [ $vf_iface -eq -1 ]; then
@@ -60,19 +60,23 @@ if [ $vf_interface -gt 0 ]; then
     if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
       HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
       HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
-      sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT
-      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
+      bus=`echo $vf | cut -d ' ' -f1`
+      slot=`echo $vf | cut -d ' ' -f2`
+      function=`echo $vf | cut -d ' ' -f3`
+      mellanox_address="0000":$bus":"$slot"."$function
+      sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT $mellanox_address
+      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
     elif [ $DRIVER_MODE == "generic" ]; then
       ATTACH_ARGS="--domain $DOMAIN --type bridge --source $BRIDGE --mac $MAC"
       if [ "$MODEL" != "-" ]; then
         ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
       fi
-      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /tmp/device.attach)
+      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
       exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
           "Could not attach NIC ($MAC) to $DOMAIN"
     fi
 
-    rm /tmp/device.attach
+    rm /dev/shm/device.attach
   fi
   BRIDGE=$DUMMY_BRIDGE
 else

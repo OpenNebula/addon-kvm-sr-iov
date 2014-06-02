@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Copyright 2014, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -65,12 +65,18 @@ dest_host=$2
       if [ `expr length $function` -eq 3 ]; then
           function=0x0$(echo $function | cut -c 3-)
       fi
+
+      mellanox_bus=`echo $bus | cut -c 3-`
+      mellanox_slot=`echo $slot | cut -c 3-`
+      mellanox_function=`echo $function | cut -c 4-`
+      mellanox_address[$interface]="0000:"$mellanox_bus":"$mellanox_slot"."$mellanox_function
+
 #Lookup VM VF locations
       vf_map_file=`grep -R "$bus $slot $function" $VF_MAPS_PATH | cut -d ':' -f1`
       root_iface[$interface]=`echo $vf_map_file | rev | cut -d '/' -f1 | rev`
       vf_iface[$interface]=`cat $vf_map_file | grep "$bus $slot $function" -n | cut -d ':' -f1`
       vf_iface[$interface]=$[${vf_iface[$interface]} - 1]
-      vf_mac[$interface]=`cat /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}`
+      vf_mac[$interface]=`cat /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}`
       wspace="          "
       wspace1="                 "
       wspace2="                         "
@@ -86,6 +92,15 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
       rem_mac=${vf_mac[$interface]}
 #Acquire destination VF locks
       remote_vf=`ssh $dest_host "$(dirname $0)/wr_dev $rem_root_iface $vm_path $rem_vf $rem_mac"`
+
+      remote_bus=`echo $remote_vf | cut -d ' ' -f1`
+      remote_bus=`echo $remote_bus | cut -c 3-`
+      remote_slot=`echo $remote_vf | cut -d ' ' -f2`
+      remote_slot=`echo $remote_slot | cut -c 3-`
+      remote_function=`echo $remote_vf | cut -d ' ' -f3`
+      remote_function=`echo $remote_function | cut -c 4-`
+      remote_mellanox_address[$interface]="0000":$remote_bus":"$remote_slot"."$remote_function
+
       found_vf[$interface]=`echo $remote_vf | cut -d ' ' -f4`
       if [ ${found_vf[$interface]} -eq -1 ]; then
         no_free_vf=true
@@ -100,7 +115,7 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
         interface=$[$interface + 1] 
 #Release VF locks on destination
 	if [ ${found_vf[$interface]} -gt -1 ]; then
-          ssh $dest_host "rm /tmp/vf_interfaces/${root_iface[$interface]}/${found_vf[$interface]}"
+          ssh $dest_host "rm /dev/shm/vf_interfaces/${root_iface[$interface]}/${found_vf[$interface]}"
           rm $vm_path"device."$[$interface - 1]
         fi
         rm $vm_path"rem_device."$[$interface - 1]
@@ -111,6 +126,7 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
     else
 #If there are enough VFs at destnation
       interface=0
+
       while [ $interface -lt $sriov_ifaces ]
       do
 #Detach VFs at source
@@ -121,13 +137,13 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
 	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
           HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-	  sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+	  sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
 	fi
 	
 	sleep 3
       done
 #Attempt migration
-      exec_and_log_no_exit "virsh --connect $LIBVIRT_URI migrate --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
+      exec_and_log_no_exit "virsh --connect $LIBVIRT_URI migrate --live --unsafe $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
       "Could not migrate $deploy_id to $dest_host"
 
       if [ $exit_code -eq 0 ]; then
@@ -142,13 +158,13 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
 	    if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
               HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
               HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-              ssh $dest_host "sudo $(dirname $0)/sbin/wr_guid.sh ${vf_mac[$interface]} ${found_vf[$interface]} $HCA_DEV $HCA_PORT"
+              ssh $dest_host "sudo $(dirname $0)/sbin/wr_guid.sh ${vf_mac[$interface]} ${found_vf[$interface]} $HCA_DEV $HCA_PORT ${remote_mellanox_address[$interface]}"
             fi
 
             command=`echo "virsh --connect "$LIBVIRT_URI" attach-device "$deploy_id" "$vm_path"device."$[$interface - 1]`
             discard=$(ssh $dest_host "$command")
 #Release VF locks at source
-	    rm /tmp/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+	    rm /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
             rm $vm_path"rem_device."$[$interface - 1]
             rm $vm_path"device."$[$interface - 1]
             sleep 3	
@@ -165,12 +181,12 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
 	    if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
               HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
               HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-              sudo $(dirname $0)/sbin/wr_guid.sh ${vf_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT
+              sudo $(dirname $0)/sbin/wr_guid.sh ${vf_mac[$interface]} ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
             fi
             command=`echo "--connect "$LIBVIRT_URI" attach-device "$deploy_id" "$vm_path"rem_device."$[$interface - 1]`
             discard=$(virsh $command)
 #Release VF locks at destination
-            ssh $dest_host "rm /tmp/vf_interfaces/${root_iface[$interface]}/${found_vf[$interface]}"
+            ssh $dest_host "rm /dev/shm/vf_interfaces/${root_iface[$interface]}/${found_vf[$interface]}"
             rm $vm_path"rem_device."$[$interface - 1]
             rm $vm_path"device."$[$interface - 1]
             sleep 3
@@ -180,7 +196,7 @@ $wspace</hostdev>" > "$vm_path"rem_device."$[$interface - 1]")
       fi
     fi
   else
-    exec_and_log "virsh --connect $LIBVIRT_URI migrate --live $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
+    exec_and_log "virsh --connect $LIBVIRT_URI migrate --live --unsafe $deploy_id $QEMU_PROTOCOL://$dest_host/system" \
       "Could not migrate $deploy_id to $dest_host"
   fi
 

@@ -23,6 +23,17 @@ wspace1="       "
 wspace2="           "
 wspace3="               "
 
+num_dsks=`cat $domain | grep "target dev" | wc -l`
+position=0
+while [ $position -lt $num_dsks ]
+do
+  position=$[$position + 1]
+  dsk_line_num=`cat $domain | grep -n "target dev" | cut -d ":" -f1 | sed "$position q;d"`
+  dsk_line=`cat $domain | grep "target dev" | cut -d "/" -f1 | sed "$position q;d"`
+  discard=$(sed -i "${dsk_line_num}d" $domain)
+  discard=`sed -i "${dsk_line_num}i\ $dsk_line bus='virtio'\/>" $domain`
+done
+
 #Get VM and host info
 vm_memory=`cat $domain | grep "<memory>" | cut -d ">" -f2 | cut -d "<" -f1`
 vm_cpus=`cat $domain | grep "<vcpu>" | cut -d ">" -f2 | cut -d "<" -f1`

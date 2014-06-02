@@ -22,15 +22,15 @@ Demonstration Video:
 7. A modified context script is required to decode the SR-IOV interface information inside the VM. An [example](https://github.com/OpenNebula/addon-kvm-sr-iov/wiki/#context-script-modification) is given for Infiniband.
 8. The maximum number of VMs with SR-IOV interfaces that the host can support is limited by the number of VFs the root device exposes. Usually around 64.
 9. To use this driver with Ethernet SR-IOV devices you will need to modify the VM context script and take into consideration MAC prefixes. ([More info](https://github.com/OpenNebula/addon-kvm-sr-iov/wiki/#ethernet-sr-iov-devices))
-10. Network isolation with SR-IOV interfaces is only supported on Mellanox ConnectX-3 HCAs with OFED v2.0-3.0.0 and a patched version of the ovswitch VNM driver is required. ([More info](https://github.com/OpenNebula/addon-kvm-sr-iov/wiki/#network-isolation))
+10. Network isolation with SR-IOV interfaces is only supported on Mellanox ConnectX-3 HCAs with OFED v2.0-3.0.0 or newer and a patched version of the ovswitch VNM driver is required. ([More info](https://github.com/OpenNebula/addon-kvm-sr-iov/wiki/#network-isolation))
 11. IPv6 has not been tested.
 
 ## Testing Environment
 
-* CentOS 6.4
-* Mellanox OFED 2.0-3.0.0
+* CentOS 6.5
+* Mellanox OFED 2.2-1.0.1
 * libvirt 0.10.2
-* OpenNebula 4.2
+* OpenNebula 4.6
 
 ## Installation 
 

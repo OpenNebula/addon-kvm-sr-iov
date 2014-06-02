@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Copyright 2014, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -49,6 +49,12 @@ if [ $DRIVER_MODE == "generic" ]; then
     if [ `expr length $function` -eq 3 ]; then
       function=0x0$(echo $function | cut -c 3-)
     fi
+
+    mellanox_bus=`echo $bus | cut -c 2-`
+    mellanox_slot=`echo $slot | cut -c 2-`
+    mellanox_function=`echo $function | cut -c 2-`
+    mellanox_address="0000:"$bus":"$slot"."$function
+
 #Lookup VM VF locations
     vf_map_file=`grep -R "$bus $slot $function" $VF_MAPS_PATH | cut -d ':' -f1`
     root_iface=`echo $vf_map_file | rev | cut -d '/' -f1 | rev`
@@ -64,11 +70,11 @@ if [ $DRIVER_MODE == "generic" ]; then
 $wspace1<source>
 $wspace2<address bus='$bus' slot='$slot' function='$function'/>
 $wspace1</source>
-$wspace</hostdev>" > /tmp/device.detach)
+$wspace</hostdev>" > /dev/shm/device.detach)
 
 #Detach VF and release VF lock
-    discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach)
-    rm /tmp/vf_interfaces/$root_iface/$vf_iface
+    discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /dev/shm/device.detach)
+    rm /dev/shm/vf_interfaces/$root_iface/$vf_iface
   fi
 
   DETACH_ARGS="--domain $DOMAIN --type bridge --mac $MAC"
@@ -85,7 +91,7 @@ elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
       interface=0
       while [ $interface -lt $sriov_ifaces ]
       do
-	interface=$[$interface + 1]
+        interface=$[$interface + 1]
 #Lookup VF interface address info
         bus=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f4 | sed "$interface q;d"`
         slot=`virsh --connect $LIBVIRT_URI dumpxml $DOMAIN | grep "<hostdev" -A 3 | grep "address" | cut -d "'" -f6 | sed "$interface q;d"`
@@ -100,35 +106,35 @@ elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
         vf_iface=`cat $vf_map_file | grep "$bus $slot $function" -n | cut -d ':' -f1`
         vf_iface=$[$vf_iface - 1]
 
-	vf_mac=`cat /tmp/vf_interfaces/$root_iface/$vf_iface | cut -c 7-`
+        vf_mac=`cat /dev/shm/vf_interfaces/$root_iface/$vf_iface | cut -c 7-`
         vm_mac=`echo $MAC | cut -c 7-`
 
-	if [ "$vf_mac" == "$vm_mac" ]; then
-	
-	  #Write device stanza
-	  wspace="          "
-	  wspace1="                 "
-	  wspace2="                         "
-	  #Write SR-IOV device stanza
-	  discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+        if [ "$vf_mac" == "$vm_mac" ]; then
+        
+          #Write device stanza
+          wspace="          "
+          wspace1="                 "
+          wspace2="                         "
+          #Write SR-IOV device stanza
+          discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
 $wspace1<source>
 $wspace2<address bus='$bus' slot='$slot' function='$function'/>
 $wspace1</source>
-$wspace</hostdev>" > /tmp/device.detach)
+$wspace</hostdev>" > /dev/shm/device.detach)
 
-	  #Detach VF and release VF lock
-	  #discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach)
+          #Detach VF and release VF lock
+          #discard=$(virsh --connect $LIBVIRT_URI detach-device $DOMAIN /dev/shm/device.detach)
 
-          exec_and_log "virsh --connect $LIBVIRT_URI detach-device $DOMAIN /tmp/device.detach" \
+          exec_and_log "virsh --connect $LIBVIRT_URI detach-device $DOMAIN /dev/shm/device.detach" \
           "Could not detach NIC ($MAC) from $DOMAIN"
 
           HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
-          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid $vf_iface $HCA_DEV $HCA_PORT
+          sudo $(dirname $0)/sbin/wr_guid.sh clear_guid $vf_iface $HCA_DEV $HCA_PORT $mellanox_address
 
-          rm /tmp/vf_interfaces/$root_iface/$vf_iface
-	  interface=$sriov_ifaces
-	fi
+          rm /dev/shm/vf_interfaces/$root_iface/$vf_iface
+          interface=$sriov_ifaces
+        fi
 
       done
     else

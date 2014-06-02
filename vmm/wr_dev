@@ -23,7 +23,7 @@ source $(dirname $0)/kvmrc
     dev_id=$3
     mac=$4
     
-    LCK=/tmp/vf_interfaces/lock
+    LCK=/dev/shm/vf_interfaces/lock
     exec 200>$LCK
     flock -x 200
     
@@ -32,8 +32,8 @@ source $(dirname $0)/kvmrc
     wspace2="                         "
 
 #Make sure interface tracking dir exists
-    if [ ! -d /tmp/vf_interfaces/$root_iface ]; then
-        mkdir /tmp/vf_interfaces/$root_iface
+    if [ ! -d /dev/shm/vf_interfaces/$root_iface ]; then
+        mkdir /dev/shm/vf_interfaces/$root_iface
     fi
 
     vf_iface=-1
@@ -42,19 +42,19 @@ source $(dirname $0)/kvmrc
     function="0x00"
     num_vf=`cat $VF_MAPS_PATH/$root_iface | wc -l`
     position=0
-    if [ -d /tmp/vf_interfaces/$root_iface ]; then
+    if [ -d /dev/shm/vf_interfaces/$root_iface ]; then
 #Find an unused VF
         while [ $position -lt $num_vf ]
         do
 #If a free VF is found load its device address info and mark as used
-            if [ ! -f "/tmp/vf_interfaces/${root_iface}/$position" ]; then
+            if [ ! -f "/dev/shm/vf_interfaces/${root_iface}/$position" ]; then
                 bus=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f1`
                 slot=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f2`
                 function=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/$root_iface | cut -d " " -f3`
                 vf_iface=$position
-                touch /tmp/vf_interfaces/$root_iface/$position
+                touch /dev/shm/vf_interfaces/$root_iface/$position
 
-		echo "$mac" > /tmp/vf_interfaces/$root_iface/$position
+		echo "$mac" > /dev/shm/vf_interfaces/$root_iface/$position
 
 #Write VF stanza
                 discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>

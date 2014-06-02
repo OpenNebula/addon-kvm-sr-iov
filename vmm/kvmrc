@@ -44,4 +44,3 @@ export DUMMY_MAC_PREFIX=aa
 
 # Set the driver mode to generic or mlnx_ofed2
 export DRIVER_MODE=generic
-
