@@ -1,0 +1,16 @@
+VMCONTEXT CHANGES FOR DEBAIN CONTEXT SCRIPT
+
+The init order of vmcontext needs to be changed to start after openibd. If it starts before openibd only Ethernet interfaces will be configured.
+
+To fix this edit /etc/init.d/vmcontext and change:
+ Should-Start:      networking
+to
+ Should-Start:      openibd
+
+Then run:
+update-rc.d -f vmcontext remove
+update-rc.d vmcontext defaults
+
+The network will now be configured after the IB driver has been loaded.
+
+NOTE: For this to work the IB OFED must be installed in the VM even if you do NOT attach an IB interface.

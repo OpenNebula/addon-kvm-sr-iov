@@ -76,7 +76,9 @@ get_interfaces_ib() {
     IFCMD="/sbin/ifconfig -a"
     calc_mac=`/sbin/ip addr | grep link/infiniband | cut -c 63-79`
     calc_dev=`/sbin/ifconfig -a | grep ^ib | sed 's/ *Link encap:UNSPEC.*HWaddr /-/g' | cut -d"-" -f1`
-    echo $calc_dev"-"$calc_mac
+    if [ "$calc_mac" != "" ]; then
+      echo $calc_dev"-"$calc_mac
+    fi
 }
 
 
@@ -174,9 +176,7 @@ EOT
     IFACES=`get_interfaces_ib`
 
     for i in $IFACES; do
-	echo $IFACES  > /tmp/test
         MAC=`get_mac $i`
-        echo $MAC >> /tmp/test
 
         DEV=`get_dev $i`
         UPCASE_DEV=`upcase $DEV`
