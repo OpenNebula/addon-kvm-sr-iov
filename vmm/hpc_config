@@ -17,6 +17,8 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+source $(dirname $0)/kvmrc
+
 domain=$1
 
 wspace1="       "
@@ -184,5 +186,7 @@ elif [ $vm_cpus -eq $cores_per_node ]; then
 
 else
 #In all other cases do not pin vCPUs, just pass the host CPU though.
-  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
+  if [ $vm_cpus -ge $CPU_PASSTHROUGH_THRESHOLD ]; then
+    discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
+  fi
 fi 
