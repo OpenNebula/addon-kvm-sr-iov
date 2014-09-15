@@ -30,7 +30,7 @@ Demonstration Video:
 * CentOS 6.5
 * Mellanox OFED 2.2-1.0.1
 * libvirt 0.10.2
-* OpenNebula 4.6
+* OpenNebula 4.8
 
 ## Installation 
 
