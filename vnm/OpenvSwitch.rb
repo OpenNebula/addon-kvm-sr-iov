@@ -34,33 +34,33 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
     def activate
         lock
 
-	vf_pos = 0	
+	vf_pos = 0
 
-        process do |nic|
+	process do |nic|
             @nic = nic
 
-	    #Check if this nic contains the sriov keyword
-	    str=@nic[:bridge]
-	    str=str.slice! "sriov"
+            #Check if this nic contains the sriov keyword
+            str=@nic[:bridge]
+            str=str.slice! "sriov"
             if str == "sriov"
-	      #If it is a sriov device apply IB pkey maps
-	      if @nic[:vlan] == "YES"
-		#If the network should be isolated
-		if @nic[:vlan_id]
-		  #If a vlan is specfied create the requested mapping
-		  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{@nic[:vlan_id]} #{@one_deploy_id} #{vf_pos}`
-        	else
-		  #If no vlan is specified generate the vlan from the base vlan
-		  build_vlan_id=CONF[:start_vlan] + @nic[:network_id].to_i
-		  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{build_vlan_id} #{@one_deploy_id} #{vf_pos}`
-		end
+              #If it is a sriov device apply IB pkey maps
+              if @nic[:vlan] == "YES"
+                #If the network should be isolated
+                if @nic[:vlan_id]
+                  #If a vlan is specfied create the requested mapping
+                  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{@nic[:vlan_id]} #{@one_deploy_id} #{vf_pos}`
+                else
+                  #If no vlan is specified generate the vlan from the base vlan
+                  build_vlan_id=CONF[:start_vlan] + @nic[:network_id].to_i
+                  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{build_vlan_id} #{@one_deploy_id} #{vf_pos}`
+                end
               else
-		#If the network should not be isolated apply the default pkey
-		cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
+                #If the network should not be isolated apply the default pkey
+                cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
               end
               vf_pos = vf_pos + 1
 
-	    else
+            else
 
               if @nic[:tap].nil?
                   STDERR.puts "No tap device found for nic #{@nic[:nic_id]}"
@@ -79,7 +79,7 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
 
               # Apply Firewall
               configure_fw if FIREWALL_PARAMS & @nic.keys != []
-	    end
+            end
         end
 
         unlock
@@ -128,9 +128,12 @@ class OpenvSwitchVLAN < OpenNebulaNetwork
         end
     end
 
-    def mac_spoofing
+    def arp_cache_poisoning
         add_flow("in_port=#{port},arp,dl_src=#{@nic[:mac]}",:drop,45000)
         add_flow("in_port=#{port},arp,dl_src=#{@nic[:mac]},nw_src=#{@nic[:ip]}",:normal,46000)
+    end
+
+    def mac_spoofing
         add_flow("in_port=#{port},dl_src=#{@nic[:mac]}",:normal,40000)
         add_flow("in_port=#{port}",:drop,39000)
     end
