@@ -53,9 +53,6 @@ do
       if [ "$part_supp" == "y" ]; then
 	echo "Enter Open vSwitch VNM directory: [/var/lib/one/remotes/vnm/ovswitch]"
         read vnm_dir
-        if [ "$username" == "" ]; then
-          username="oneadmin"
-        fi
         sel_err=0
       elif [ "$part_supp" == "n" ]; then
         sel_err=0
@@ -64,6 +61,9 @@ do
       fi
     done
 
+    if [ "$username" == "" ]; then
+      username="oneadmin"
+    fi
     if [ "$group" == "" ]; then
       group="cloud"
     fi
