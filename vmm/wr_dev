@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
+# Copyright 2015, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -57,7 +57,7 @@ source $(dirname $0)/kvmrc
 		echo "$mac" > /dev/shm/vf_interfaces/$root_iface/$position
 
 #Write VF stanza
-                discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+                discard=$(echo "$wspace<hostdev mode='subsystem' type='pci' managed='yes'>
 $wspace1<source>
 $wspace2<address bus='$bus' slot='$slot' function='$function'/>
 $wspace1</source>

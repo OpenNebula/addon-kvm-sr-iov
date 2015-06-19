@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2014, CSIR Centre for High Performance Computing                 #
+# Copyright 2015, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -61,7 +61,7 @@ if [ $DRIVER_MODE == "generic" ]; then
     wspace1="                 "
     wspace2="                         "
 #Write SR-IOV device stanza
-    discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+    discard=$(echo "$wspace<hostdev mode='subsystem' type='pci' managed='yes'>
 $wspace1<source>
 $wspace2<address bus='$bus' slot='$slot' function='$function'/>
 $wspace1</source>
@@ -117,7 +117,7 @@ elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
           wspace1="                 "
           wspace2="                         "
           #Write SR-IOV device stanza
-          discard=$(echo "$wspace<hostdev mode='subsystem' type='pci'>
+          discard=$(echo "$wspace<hostdev mode='subsystem' type='pci' managed='yes'>
 $wspace1<source>
 $wspace2<address bus='$bus' slot='$slot' function='$function'/>
 $wspace1</source>
