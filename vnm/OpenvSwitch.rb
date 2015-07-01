@@ -28,6 +28,7 @@ class OpenvSwitchVLAN < VNMMAD::VNMDriver
     def initialize(vm, deploy_id = nil, hypervisor = nil)
         super(vm,XPATH_FILTER,deploy_id,hypervisor)
         @locking = false
+	@one_deploy_id = deploy_id
 
         @vm.nics.each do |nic|
             if nic[:bridge_ovs] && !nic[:bridge_ovs].empty?
@@ -39,29 +40,56 @@ class OpenvSwitchVLAN < VNMMAD::VNMDriver
     def activate
         lock
 
+	vf_pos = 0
+
         process do |nic|
             @nic = nic
 
-            if @nic[:tap].nil?
-                STDERR.puts "No tap device found for nic #{@nic[:nic_id]}"
-                unlock
-                exit 1
-            end
+	    #Check if this nic contains the sriov keyword
+            str=@nic[:bridge]
+            str=str.slice! "sriov"
+            if str == "sriov"
+              #If it is a sriov device apply IB pkey maps
+              if @nic[:vlan] == "YES"
+                #If the network should be isolated
+                if @nic[:vlan_id]
+                  #If a vlan is specfied create the requested mapping
+                  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{@nic[:vlan_id]} #{@one_deploy_id} #{vf_pos}`
+                else
+                  #If no vlan is specified generate the vlan from the base vlan
+                  build_vlan_id=CONF[:start_vlan] + @nic[:network_id].to_i
+                  cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh #{build_vlan_id} #{@one_deploy_id} #{vf_pos}`
+                end
+              else
+                #If the network should not be isolated apply the default pkey
+                cmd=`sudo /var/tmp/one/vnm/ovswitch/sbin/apply_pkey_map.sh no_vlan #{@one_deploy_id} #{vf_pos}`
+              end
+              vf_pos = vf_pos + 1
 
-            # Apply VLAN
-            if @nic[:vlan] == "YES"
-                tag_vlan
-                tag_trunk_vlans
-            end
+            else
 
-            # Prevent ARP Cache Poisoning
-            arp_cache_poisoning if CONF[:arp_cache_poisoning] && @nic[:ip]
 
-            # Prevent Mac-spoofing
-            mac_spoofing
+              if @nic[:tap].nil?
+                  STDERR.puts "No tap device found for nic #{@nic[:nic_id]}"
+                  unlock
+                  exit 1
+              end
 
-            # Apply Firewall
-            configure_fw if FIREWALL_PARAMS & @nic.keys != []
+              # Apply VLAN
+              if @nic[:vlan] == "YES"
+                  tag_vlan
+                  tag_trunk_vlans
+              end
+
+              # Prevent ARP Cache Poisoning
+              arp_cache_poisoning if CONF[:arp_cache_poisoning] && @nic[:ip]
+
+              # Prevent Mac-spoofing
+              mac_spoofing
+
+              # Apply Firewall
+              configure_fw if FIREWALL_PARAMS & @nic.keys != []
+	  end
         end
 
         unlock
