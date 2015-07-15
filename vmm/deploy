@@ -106,8 +106,8 @@ if [ $sriov_ifaces -gt 0 ]; then
 #Find SR-IOV interfcace in deployment, extract MAC and remove its bridge stanza
       setmac=`cat $domain | grep -A $count sriov | egrep -oh '([a-f0-9]{2}\:*){6}' | sed "1 q;d"`
       line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
-      line=$[$line - 2]
-      count=$[$count + 3]
+      line=$[$line - 1]
+      count=$[$count + 2]
       while [ $count -gt 0 ]
       do
 	count=$[$count - 1]
