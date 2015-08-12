@@ -95,30 +95,42 @@ if [ $sriov_ifaces -gt 0 ]; then
     fi
 
     if [ ${vf_iface[$interface]} -gt -1 ]; then
-      sriov_line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
+#Find the SR-IOV interface
+      line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
+#Find the end of the SR-IOV interface stanza
       count=0
       found_end=""
       while [[ $found_end != "interface>" ]]
-  	do
-	  count=$[$count + 1]
-	  found_end=`cat $domain | grep -A $count sriov | grep "</interface>" | cut  -d '/' -f2 | sed "1 q;d"`
-	done
-#Find SR-IOV interfcace in deployment, extract MAC and remove its bridge stanza
+        do
+          count=$[$count + 1]
+          found_end=`cat $domain | grep -A $count sriov | grep "</interface>" | cut  -d '/' -f2 | sed "1 q;d"`
+        done
+      bot_line=$[$line + $count]
+#Get the SR-IOV MAC address
       setmac=`cat $domain | grep -A $count sriov | egrep -oh '([a-f0-9]{2}\:*){6}' | sed "1 q;d"`
-      line=`cat $domain | grep sriov -n | cut -d ':' -f1 | sed "1 q;d"`
-      line=$[$line - 2]
-      count=$[$count + 3]
+#Find the start of the SR-IOV stanza
+      count=0
+      found_start=""
+      while [[ $found_start != "interface type='bridge'>" ]]
+        do
+          count=$[$count + 1]
+          found_start=`cat $domain | grep -B $count sriov | grep "<interface type='bridge'>" | cut  -d '<' -f2 | sed "1 q;d"`
+        done
+      top_line=$[$line - $count]
+#Calculate the number of lines in the stanza
+      rem_lines=$[$bot_line - $top_line + 1]
+#Remove the lines from the deployment file
+      count=$rem_lines
       while [ $count -gt 0 ]
-      do
-	count=$[$count - 1]
-	discard=$(sed -i "${line}d" $domain)
-      done
-
+        do
+          count=$[$count - 1]
+          discard=$(sed -i "${top_line}d" $domain)
+        done
 #Calculate MAC with SR-IOV prefix      
       dummymac=$(echo $setmac | cut -c 7-)
       dummymac=$DUMMY_MAC_PREFIX":0"$[$interface - 1]":"$dummymac
 #Write SR-IOV device stanza
-      discard=$(sed -i "${line}i\ $wspace<hostdev mode='subsystem' type='pci' managed='yes'>\\n$wspace1<source>\\n$wspace2<address bus='$bus' slot='$slot' function='$function'\/>\\n$wspace1<\/source>\\n$wspace<\/hostdev>" $domain)
+      discard=$(sed -i "${top_line}i\ $wspace<hostdev mode='subsystem' type='pci' managed='yes'>\\n$wspace1<source>\\n$wspace2<address bus='$bus' slot='$slot' function='$function'\/>\\n$wspace1<\/source>\\n$wspace<\/hostdev>" $domain)
 
       if [ $DRIVER_MODE == "generic" ]; then
         line=`cat $domain | grep -n "</devices>" | cut -d ":" -f1`
