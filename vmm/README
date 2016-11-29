@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2015, CSIR Centre for High Performance Computing                 #
+# Copyright 2016, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -15,6 +15,6 @@
 # limitations under the License.                                             #
 #                                                                            #
 # Adapted from the OpenNebula Project's KVM VMM Driver                       #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+# Copyright 2002-2016, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 

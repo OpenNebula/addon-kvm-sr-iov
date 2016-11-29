@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
+# Copyright 2002-2016, OpenNebula Project, OpenNebula Systems                #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -16,10 +16,26 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+$: << File.join(File.dirname(__FILE__), '../lib')
+
 require 'pp'
 require 'rexml/document'
+require 'base64'
+require 'uri'
+
+require "poll_common"
+
+begin
+    require 'rubygems'
+    require 'json'
+
+    JSON_LOADED = true
+rescue LoadError
+    JSON_LOADED = false
+end
 
 ENV['LANG']='C'
+ENV['LC_ALL']='C'
 
 ################################################################################
 #
@@ -65,11 +81,13 @@ module KVM
 
         values=Hash.new
 
-        values[:state]      = get_state(dominfo['State'])
-        values[:usedcpu]    = cpu[vm[:pid]] if cpu[vm[:pid]]
-        values[:usedmemory] = [resident_mem, max_mem].max
+        values[:state]  = get_state(dominfo['State'])
+        values[:cpu]    = cpu[vm[:pid]] if cpu[vm[:pid]]
+        values[:memory] = [resident_mem, max_mem].max
 
-        values.merge!(get_interface_statistics(one_vm))
+        xml = dump_xml(one_vm)
+
+        values.merge!(get_interface_statistics(one_vm, xml))
 
         return values
     end
@@ -121,16 +139,64 @@ module KVM
 
             values = Hash.new
 
-            values[:state]      = get_state(dominfo['State'])
-            values[:usedcpu]    = cpu[vm[:pid]] if cpu[vm[:pid]]
-            values[:usedmemory] = [resident_mem, max_mem].max
+            values[:state]  = get_state(dominfo['State'])
+            values[:cpu]    = cpu[vm[:pid]] if cpu[vm[:pid]]
+            values[:memory] = [resident_mem, max_mem].max
 
-            values.merge!(get_interface_statistics(name))
+            xml = dump_xml(name)
+
+            values.merge!(get_interface_statistics(name, xml))
+
+            if !name.match(/^one-\d+/)
+                uuid, template = xml_to_one(xml)
+                values[:template] = Base64.encode64(template).delete("\n")
+                values[:vm_name] = name
+                vm[:name] = uuid
+            end
 
             vms_info[vm[:name]] = values
         end
 
         return vms_info
+    end
+
+    def self.number_of_processors
+        %x{nproc}.to_i
+    end
+
+    def self.get_cpu_jiffies
+        begin
+            stat = File.read("/proc/stat")
+        rescue
+            return 0
+        end
+
+        jiffies = 0
+
+        # skip cpu string and guest jiffies
+        stat.lines.first.split(' ')[1..-3].each do |num|
+            jiffies += num.to_i
+        end
+
+        jiffies
+    end
+
+    def self.get_process_jiffies(pid)
+        begin
+            stat = File.read("/proc/#{pid}/stat")
+        rescue
+            return 0
+        end
+
+        jiffies = 0
+
+        data = stat.lines.first.split(' ')
+
+        [13, 14, 15, 16].each do |col|
+            jiffies += data[col].to_i
+        end
+
+        jiffies
     end
 
     # Gathers process information from a set of VMs.
@@ -140,31 +206,23 @@ module KVM
         pids = vms.map {|name, vm| vm[:pid] }
         pids.compact!
 
+        multiplier = number_of_processors * 100
+
         cpu = Hash.new
 
-        pids.each_slice(20) do |slice|
-            data = %x{#{CONF[:top]} #{slice.join(',')}}
+        start_cpu_jiffies = get_cpu_jiffies
 
-            lines = data.strip.split("\n")
+        pids.each do |pid|
+            cpu[pid] = get_process_jiffies(pid).to_f
+        end
 
-            block_size  = lines.length/2
-            valid_lines = lines.last(block_size)
+        sleep 1
 
-            first_domain = 7
+        cpu_jiffies = get_cpu_jiffies - start_cpu_jiffies
 
-            valid_lines.each_with_index{ |l,i|
-                if l.match 'PID USER'
-                    first_domain=i+1
-                    break
-                end
-            }
-
-            domain_lines = valid_lines[first_domain..-1]
-
-            domain_lines.each do |line|
-                d = line.split
-                cpu[d[0]] = d[8]
-            end
+        pids.each do |pid|
+            cpu[pid] = ( get_process_jiffies(pid) - cpu[pid] ) / cpu_jiffies
+            cpu[pid] = ( cpu[pid] * multiplier ).round(2)
         end
 
         cpu
@@ -197,7 +255,7 @@ module KVM
     #   Security model: none
     #   Security DOI:   0
     def self.dom_info(vmid)
-        text = `#{virsh(:dominfo)} #{vmid}`
+        text = `#{virsh(:dominfo)} #{vmid} 2>/dev/null`
 
         return nil if $?.exitstatus != 0
 
@@ -213,11 +271,19 @@ module KVM
         hash
     end
 
+    # Get dumpxml output of a VM
+    #   @param the ID of the VM as defined in libvirt
+    #   @return [String] xml output of virsh dumpxml
+    def self.dump_xml(vmid)
+        `#{virsh(:dumpxml)} '#{vmid}' 2>/dev/null`
+    end
+
     # Aggregate statics of all VM NICs
     #   @param the ID of the VM as defined in libvirt
+    #   @param text [nil, String] dumpxml output or nil to execute dumpxml
     #   @return [Hash] with network stats, by name [symbol] :netrx, :nettx
-    def self.get_interface_statistics(vmid)
-        text = `#{virsh(:dumpxml)} #{vmid}`
+    def self.get_interface_statistics(vmid, text = nil)
+        text = dump_xml(vmid) if !text
 
         return {} if $?.exitstatus != 0
 
@@ -237,7 +303,7 @@ module KVM
         values[:nettx] = 0
 
         interfaces.each do |interface|
-            text=`#{virsh(:domifstat)} #{vmid} #{interface}`
+            text=`#{virsh(:domifstat)} #{vmid} #{interface} 2>/dev/null`
 
             next if $?.exitstatus != 0
 
@@ -278,248 +344,147 @@ module KVM
                 '-'
         end
     end
-end
 
-################################################################################
-#
-# Xen Monitor Module
-#
-################################################################################
-module XEN
-    # Default configuration variables. It can be overridden through xenrc
-    CONF={
-        'XM_POLL' => 'sudo /usr/sbin/xentop -bi2'
-    }
+    # Convert the output of dumpxml to an OpenNebula template
+    #   @param xml [String] output of dumpxml
+    #   @return [Array] uuid and OpenNebula template encoded in base64
+    def self.xml_to_one(xml)
+        doc = REXML::Document.new(xml)
 
-    # Get the information of a single VM. In case of error the VM is reported
-    # as not found.
-    # @param vm_id [String] with the VM information
-    def self.get_vm_info(vm_id)
-        data = get_all_vm_info
+        name = REXML::XPath.first(doc, '/domain/name').text
+        uuid = REXML::XPath.first(doc, '/domain/uuid').text
+        vcpu = REXML::XPath.first(doc, '/domain/vcpu').text
+        memory = REXML::XPath.first(doc, '/domain/memory').text.to_i / 1024
+        arch = REXML::XPath.first(doc, '/domain/os/type').attributes['arch']
 
-        if !data
-            return {:STATE => 'd'}
-        else
-            return data[vm_id]
-        end
-    end
+=begin
+        disks = []
+        REXML::XPath.each(doc, '/domain/devices/disk') do |d|
+            type = REXML::XPath.first(d, '//disk').attributes['type']
+            driver = REXML::XPath.first(d, '//disk/driver').attributes['type']
+            source = REXML::XPath.first(d, '//disk/source').attributes[type]
+            target = REXML::XPath.first(d, '//disk/target').attributes['dev']
 
-    # Gets the information of all VMs
-    #
-    # @return [Hash, nil] Hash with the VM information or nil in case of error
-    def self.get_all_vm_info
-        begin
-            text  = `#{CONF['XM_POLL']}`
-
-            return nil if $?.exitstatus != 0
-
-            lines = text.strip.split("\n")
-
-            block_size  = lines.length/2
-            valid_lines = lines.last(block_size)
-
-            first_domain = 4
-
-            valid_lines.each_with_index{ |l,i|
-                if l.match 'NAME  STATE'
-                    first_domain=i+1
-                    break
-                end
+            disks << {
+                :type => type,
+                :driver => driver,
+                :source => source,
+                :target => target
             }
-
-            domain_lines = valid_lines[first_domain..-1]
-
-            domains = Hash.new
-
-            domain_lines.each do |dom|
-                dom_data = dom.gsub('no limit', 'no-limit').strip.split
-
-                dom_hash = Hash.new
-
-                dom_hash[:name]       = dom_data[0]
-                dom_hash[:state]      = get_state(dom_data[1])
-                dom_hash[:usedcpu]    = dom_data[3]
-                dom_hash[:usedmemory] = dom_data[4]
-                dom_hash[:nettx]      = dom_data[10].to_i * 1024
-                dom_hash[:netrx]      = dom_data[11].to_i * 1024
-
-                domains[dom_hash[:name]] = dom_hash
-            end
-
-            domains
-        rescue
-            STDERR.puts "Error executing #{CONF['XM_POLL']}"
-            nil
         end
-    end
 
-    # Returns an OpenNebula state from the Xen status
-    # @param state [String] with the Xen status
-    # @return [String] OpenNebula monitor state
-    #
-    # Xentop states are:
-    #  'd' – domain is dying
-    #  's' – domain shutting down
-    #  'b' – blocked domain
-    #  'c' – domain crashed
-    #  'p' – domain paused
-    #  'r' – domain is actively ruining on one of the CPU
-    def self.get_state(state)
-        case state.gsub('-', '')[-1..-1]
-        when *%w{r b s d p}
-            'a'
-        when 'c'
-            'e'
-        else
-            '-'
+        disks_txt = ''
+
+        disks.each do |disk|
+            disks_txt << "DISK=[\n"
+            disks_txt << "  SOURCE=\"#{disk[:source]}\",\n"
+            disks_txt << "  DRIVER=\"#{disk[:driver]}\",\n"
+            disks_txt << "  TARGET=\"#{disk[:target]}\""
+            disks_txt << "]\n"
         end
-    end
-end
 
-################################################################################
-# Functions to interface hypervisor information
-################################################################################
 
-# Selects the hypervisor to be used based on the arguments or probe location
-# This function also loads the associated configuration variables.
-# @return [Module] with the hypervisor XEN, KVM
-def setup_hypervisor
-    hypervisor = nil
-    params     = ARGV.clone
+        interfaces = []
+        REXML::XPath.each(doc,
+                "/domain/devices/interface[@type='bridge']") do |i|
+            mac = REXML::XPath.first(i, '//interface/mac').
+                attributes['address']
+            bridge = REXML::XPath.first(i, '//interface/source').
+                attributes['bridge']
+            model = REXML::XPath.first(i, '//interface/model').
+                attributes['type']
 
-    params.each_with_index do |param, index|
-        case param
-            when '--kvm'
-                hypervisor = KVM
-                ARGV.delete_at(index)
-            when '--xen'
-                hypervisor = XEN
-                ARGV.delete_at(index)
+            interfaces << {
+                :mac => mac,
+                :bridge => bridge,
+                :model => model
+            }
         end
-    end
 
-    if !hypervisor
-        case $0
-            when %r{/vmm\/kvm/}
-                hypervisor=KVM
-            when %r{/vmm\/xen\d?/}
-                hypervisor=XEN
+        interfaces_txt = ''
+
+        interfaces.each do |interface|
+            interfaces_txt << "NIC=[\n"
+            interfaces_txt << "  MAC=\"#{interface[:mac]}\",\n"
+            interfaces_txt << "  BRIDGE=\"#{interface[:bridge]}\",\n"
+            interfaces_txt << "  MODEL=\"#{interface[:model]}\""
+            interfaces_txt << "]\n"
         end
-    end
+=end
 
-    case hypervisor.name
-        when 'XEN'
-            file = 'xenrc'
-            vars = %w{XM_POLL}
-        when 'KVM'
-            file = 'kvmrc'
-            vars = %w{LIBVIRT_URI}
-        else
-            return nil
-    end
+        spice = REXML::XPath.first(doc,
+            "/domain/devices/graphics[@type='spice']")
+        spice = spice.attributes['port'] if spice
 
-    # Load the rc variables and override the default values
-    begin
-        env   = `. #{File.dirname($0)+"/#{file}"};env`
-        lines = env.split("\n")
+        spice_txt = ''
+        if spice
+            spice_txt = %Q<GRAPHICS = [ TYPE="spice", PORT="#{spice}" ]>
+        end
 
-        vars.each do |var|
-            lines.each do |line|
-                if a = line.match(/^(#{var})=(.*)$/)
-                    hypervisor::CONF[var] = a[2]
-                    break
-                end
+        vnc = REXML::XPath.first(doc, "/domain/devices/graphics[@type='vnc']")
+        vnc = vnc.attributes['port'] if vnc
+
+        vnc_txt = ''
+        if vnc
+            vnc_txt = %Q<GRAPHICS = [ TYPE="vnc", PORT="#{vnc}" ]>
+        end
+
+
+        feature_list = %w{acpi apic pae}
+        features = []
+
+        feature_list.each do |feature|
+            if REXML::XPath.first(doc, "/domain/features/#{feature}")
+                features << feature
             end
         end
-    rescue
-    end
 
-    return hypervisor
-end
-
-# Returns an OpenNebula monitor string
-# @param name [String] of the monitor metric
-# @param value [String] of the monitor metric
-# @return [String, nil]
-def print_data(name, value)
-    if value
-        "#{name.to_s.upcase}=#{value}"
-    else
-        nil
-    end
-end
-
-# Puts to STDOUT a string in the form "VAL1=VAR1 VAL2=VAR2" with the monitor
-# attributes of the VM
-# @param hypervisor [Module]
-# @param vm_id [String] with the VM ID
-def print_one_vm_info(hypervisor, vm_id)
-    info = hypervisor.get_vm_info(vm_id)
-
-    exit(-1) if !info
-
-    values = info.map do |key, value|
-        print_data(key, value)
-    end
-
-    puts values.zip.join(' ')
-end
-
-def print_all_vm_info(hypervisor)
-    require 'yaml'
-    require 'base64'
-    require 'zlib'
-
-    vms = hypervisor.get_all_vm_info
-
-    return nil if vms.nil?
-
-    compressed = Zlib::Deflate.deflate(vms.to_yaml)
-
-    puts Base64.encode64(compressed).delete("\n")
-end
-
-def print_all_vm_template(hypervisor)
-    vms=hypervisor.get_all_vm_info
-
-    return nil if vms.nil?
-
-    puts "VM_POLL=YES"
-
-    vms.each do |name, data|
-        number = -1
-
-        if (name =~ /^one-\d*$/)
-            number = name.split('-').last
+        feat = []
+        features.each do |feature|
+            feat << %Q[  #{feature.upcase}="yes"]
         end
 
-        string  = "VM=[\n"
-        string << "  ID=#{number},\n"
-        string << "  DEPLOY_ID=#{name},\n"
+        features_txt = "FEATURES=[\n"
+        features_txt << feat.join(",\n")
+        features_txt << "]\n"
 
-        values = data.map do |key, value|
-            print_data(key, value)
+
+        template = <<EOT
+NAME="#{name}"
+CPU=#{vcpu}
+VCPU=#{vcpu}
+MEMORY=#{memory}
+HYPERVISOR="kvm"
+IMPORT_VM_ID="#{uuid}"
+OS=[ARCH="#{arch}"]
+#{features_txt}
+#{spice_txt}
+#{vnc_txt}
+EOT
+
+        return uuid, template
+    end
+
+    def self.rbd_pool(pool, auth = nil)
+        @@rbd_pool ||= {}
+
+        if @@rbd_pool[pool].nil?
+            @@rbd_pool[pool] = `rbd #{auth} ls -l -p #{pool} --format xml`
         end
 
-        monitor = values.zip.join(' ')
-
-        string << "  POLL=\"#{monitor}\" ]"
-
-        puts string
+        @@rbd_pool[pool]
     end
 end
-
 
 ################################################################################
 # MAIN PROGRAM
 ################################################################################
 
-hypervisor = setup_hypervisor
+hypervisor = KVM
+file       = 'kvmrc'
+vars       = %w{LIBVIRT_URI}
 
-if !hypervisor
-    STDERR.puts "Could not detect hypervisor"
-    exit(-1)
-end
+load_vars(hypervisor, file, vars)
 
 vm_id = ARGV[0]
 

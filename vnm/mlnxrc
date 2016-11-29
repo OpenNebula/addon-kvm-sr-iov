@@ -1,0 +1,1 @@
+export KVM_SRIOV_PATH=/var/tmp/one/vmm/kvm-sriov/

@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2016, OpenNebula Project, OpenNebula Systems                #
+# Copyright 2016, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod, Israel Tshililo                                     #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -16,4 +17,11 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+address=$1
+HCA_DEV=$2
+HCA_PORT=$3
+fileNum=$4
+fileVal=$5
+
+echo $fileVal > "/sys/class/infiniband/mlx4_$HCA_DEV/iov/$address/ports/$HCA_PORT/pkey_idx/$fileNum"
 exit 0

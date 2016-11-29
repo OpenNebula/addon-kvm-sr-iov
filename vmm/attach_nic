@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2015, CSIR Centre for High Performance Computing                 #
+# Copyright 2016, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -17,7 +17,7 @@
 # limitations under the License.                                             #
 #                                                                            #
 # Adapted from the OpenNebula Project's KVM VMM attach_nic script            #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+# Copyright 2002-2016, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
 source $(dirname $0)/kvmrc
@@ -28,14 +28,15 @@ MAC=$2
 BRIDGE=$3
 THE_MODEL=$4
 NET_DRV=$5
-
-wspace="          "
-wspace1="                 "
-wspace2="                         "
+TARGET=$6
 
 #If SR-IOV interface
 vf_interface=`echo $BRIDGE | grep sriov | wc -l`
 if [ $vf_interface -gt 0 ]; then
+#Make sure VF tracking dir exists
+  if [ ! -d /dev/shm/vf_interfaces ]; then
+      mkdir /dev/shm/vf_interfaces
+  fi
   ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
   if [ $ovs_installed -gt 0 ]; then
     ovs_bridge=`sudo ovs-vsctl show | grep $BRIDGE | wc -l `
@@ -43,7 +44,7 @@ if [ $vf_interface -gt 0 ]; then
     ovs_bridge=0
   fi
 
-#Build VF info 
+#Build VF info
   MAC=$(echo $MAC | cut -c 7-)
   MAC=$DUMMY_MAC_PREFIX":10:"$MAC
 
@@ -51,7 +52,7 @@ if [ $vf_interface -gt 0 ]; then
 
   vf=`$(dirname $0)/wr_dev $root_iface /dev/shm/ attach $MAC`
   vf_iface=`echo $vf | cut -d ' ' -f4`
-#Attach VF is available  
+#Attach VF is available
   if [ $vf_iface -eq -1 ]; then
     error_message "No free VF!"
     exit -1
@@ -68,7 +69,7 @@ if [ $vf_interface -gt 0 ]; then
       mellanox_slot=`echo $slot | cut -c 3-`
       mellanox_function=`echo $function | cut -c 4-`
       mellanox_address="0000":$mellanox_bus":"$mellanox_slot"."$mellanox_function
-      
+
       sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT $mellanox_address
       discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
     elif [ $DRIVER_MODE == "generic" ]; then
@@ -85,6 +86,7 @@ if [ $vf_interface -gt 0 ]; then
   fi
   BRIDGE=$DUMMY_BRIDGE
 else
+
   if [ "$THE_MODEL" != "-" ]; then
       MODEL="<model type='$THE_MODEL'/>"
   fi
@@ -93,11 +95,11 @@ else
       VIRTUALPORT="<virtualport type='openvswitch'/>"
   fi
 
-
   DEVICE=$(cat <<EOF
 <interface type='bridge'>
     <source bridge='$BRIDGE'/>
     <mac address='$MAC'/>
+    <target dev='$TARGET'/>
     $MODEL
     $VIRTUALPORT
 </interface>
@@ -115,5 +117,4 @@ EOF
 
   multiline_exec_and_log "$ATTACH_CMD" \
     "Could not attach $SOURCE ($TARGET) to $DOMAIN"
-
 fi

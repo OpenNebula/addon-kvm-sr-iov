@@ -40,26 +40,8 @@ do
     read group
     echo "Enter VMM install directory: [/var/lib/one/remotes/vmm/kvm-sriov]"
     read vmm_dir
-
-
-    echo "Do you want to install Infiniband partitions support? y/[n]"
-    sel_err=1
-    while [ $sel_err -eq 1 ]
-    do
-      read part_supp
-      if [ "$part_supp" == "" ]; then
-        part_supp="n"
-      fi
-      if [ "$part_supp" == "y" ]; then
-	echo "Enter Open vSwitch VNM directory: [/var/lib/one/remotes/vnm/ovswitch]"
-        read vnm_dir
-        sel_err=0
-      elif [ "$part_supp" == "n" ]; then
-        sel_err=0
-      else
-        echo "Enter either y or n"
-      fi
-    done
+    echo "Enter VNM install directory: [/var/lib/one/remotes/vnm/sriov-mlnx]"
+    read vnm_dir
 
     if [ "$username" == "" ]; then
       username="oneadmin"
@@ -71,7 +53,7 @@ do
       vmm_dir="/var/lib/one/remotes/vmm/kvm-sriov"
     fi
     if [ "$vnm_dir" == "" ]; then
-      vnm_dir="/var/lib/one/remotes/vnm/ovswitch"
+      vnm_dir="/var/lib/one/remotes/vnm/sriov-mlnx"
     fi
     if [ -d $vmm_dir ]; then
       echo -e "VMM directory already exists, making a backup... \c"
@@ -82,17 +64,16 @@ do
     cp -a vmm $vmm_dir
     chown -R $username:$group $vmm_dir
     echo "done."
-    if [ "$part_supp" == "y" ]; then
-      if [ -d $vnm_dir ]; then
-        echo -e "VNM directory already exists, making a backup... \c"
-        mv $vnm_dir $vnm_dir.backup_$backup_str
-        echo "done."
-      fi
-      echo -e "Copying VNM directory... \c"
-      cp -a vnm $vnm_dir
-      chown -R $username:$group $vnm_dir
+
+    if [ -d $vnm_dir ]; then
+      echo -e "VNM directory already exists, making a backup... \c"
+      mv $vnm_dir $vnm_dir.backup_$backup_str
       echo "done."
     fi
+    echo -e "Copying VNM directory... \c"
+    cp -a vnm $vmm_dir
+    chown -R $username:$group $vnm_dir
+    echo "done."
 
     echo ""
     echo "-------------------------------------------------"
@@ -127,14 +108,14 @@ do
     discard=`sed -i "${line}i\export DUMMY_BRIDGE=$sriov_br" $vmm_dir/kvmrc`
 
     echo "Select the VMM driver mode:"
-    echo "[1] generic"
-    echo " 2  mlnx_ofed2"
+    echo " 1 generic"
+    echo "[2]mlnx_ofed"
     sel_err=1
     while [ $sel_err -eq 1 ]
     do
       read driver_mode
       if [ "$driver_mode" == "" ]; then
-        driver_mode="1"
+        driver_mode="2"
       fi
       if [ "$driver_mode" == "1" ]; then
         line=`cat $vmm_dir/kvmrc | grep -n "DRIVER_MODE=" | cut -d ":" -f1`
@@ -173,6 +154,12 @@ do
         echo "Enter either y or n"
       fi
     done
+
+    echo "Configuring mlnxrc..."
+    line=`cat $vnm_dir/mlnxrc | grep -n "KVM_SRIOV_PATH=" | cut -d ":" -f1`
+    discard=`sed -i "${line}d" $vnm_dir/mlnxrc`
+    discard=`sed -i "${line}i\export KVM_SRIOV_PATH=$vmm_dir" $vnm_dir/mlnxrc`
+    echo "done."
 
     echo -e "Calling onehost sync... \c"
     sudo -u $username -H sh -c "onehost sync"

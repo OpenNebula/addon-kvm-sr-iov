@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2015, CSIR Centre for High Performance Computing                 #
+# Copyright 2016, CSIR Centre for High Performance Computing                 #
 # Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
@@ -25,20 +25,21 @@ wspace1="       "
 wspace2="           "
 wspace3="               "
 
-num_dsks=`cat $domain | grep "target dev" | wc -l`
-position=0
-while [ $position -lt $num_dsks ]
-do
-  position=$[$position + 1]
-  dsk_line_num=`cat $domain | grep -n "target dev" | cut -d ":" -f1 | sed "$position q;d"`
-  dsk_line=`cat $domain | grep "target dev" | cut -d "/" -f1 | sed "$position q;d"`
-  discard=$(sed -i "${dsk_line_num}d" $domain)
-  discard=`sed -i "${dsk_line_num}i\ $dsk_line bus='virtio'\/>" $domain`
-done
+#num_dsks=`cat $domain | grep "target dev" | wc -l`
+#position=0
+#while [ $position -lt $num_dsks ]
+#do
+#  position=$[$position + 1]
+#  dsk_line_num=`cat $domain | grep -n "target dev" | cut -d ":" -f1 | sed "$position q;d"`
+#  dsk_line=`cat $domain | grep "target dev" | cut -d "/" -f1 | sed "$position q;d"`
+#  discard=$(sed -i "${dsk_line_num}d" $domain)
+#  discard=`sed -i "${dsk_line_num}i\ $dsk_line bus='virtio'\/>" $domain`
+#done
 
 #Get VM and host info
 vm_memory=`cat $domain | grep "<memory>" | cut -d ">" -f2 | cut -d "<" -f1`
-vm_cpus=`cat $domain | grep "<vcpu>" | cut -d ">" -f2 | cut -d "<" -f1`
+#vm_cpus=`cat $domain | grep "<vcpu>" | cut -d ">" -f2 | cut -d "<" -f1`
+vm_cpus=`cat $domain | grep "<vcpu>" | cut -d "[" -f3 | cut -d "]" -f1`
 num_nodes=`numactl --hardware | grep size | wc -l`
 
 #Find the NUMA CPU mapping on the host
@@ -62,21 +63,21 @@ discard=`sed -i "3i\ $wspace1<memoryBacking>\\n$wspace2<hugepages\/>\\n$wspace2<
 
 if [ $vm_cpus -eq $total_cpus ]; then
 #If the VM has as many vCPUs and the host
-  discard=`sed -i "3i\ $wspace1<numatune>\\n$wspace2<memory mode='interleave' nodeset='0-$[$num_nodes-1]'/>\\n$wspace1 <\/numatune> " $domain`
- 
+  discard=`sed -i "3i\ $wspace1<numatune>\\n$wspace2<memory mode='interleave' nodeset='0-$[$num_nodes-1]'/>\\n$wspace1 <\/numatune> " $domain` 
+
 #Divide the VMs memory by the number of NUMA nodes in the host
   node_mem=$[$vm_memory/$num_nodes]
 #Write the host's NUMA architecture into the VM definition
-  discard=`sed -i "3i\ $wspace2<\/numa>\\n$wspace1 <\/cpu>" $domain`
-  position=0
-  while [ $position -lt $num_nodes ]
-  do
-    position=$[$position + 1]
-    discard=`sed -i "3i\ $wspace3<cell cpus='${node_map[$position]}' memory='$node_mem'\/>" $domain`
-  done
+#  discard=`sed -i "3i\ $wspace2<\/numa>\\n$wspace1 <\/cpu>" $domain`
+#  position=0
+#  while [ $position -lt $num_nodes ]
+#  do
+#    position=$[$position + 1]
+#    discard=`sed -i "3i\ $wspace3<cell cpus='${node_map[$position]}' memory='$node_mem'\/>" $domain`
+#  done
 
 #Pass the host's CPU through to the VM
-  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'>\\n$wspace2 <numa>" $domain`
+  discard=`sed -i "3i\ $wspace1<cpu mode='host-passthrough'\/>" $domain`
 
 #Search for the cputune stanza in the VM definition
   cputune_line=`cat $domain | grep -n "<cputune>" | cut -d ":" -f1`
@@ -85,18 +86,18 @@ if [ $vm_cpus -eq $total_cpus ]; then
 #Pin the CPUs to NUMA groups
   while [ $position -lt $vm_cpus ]
   do
-    map=0
-    while [ $map -lt $num_nodes ]
-    do
+#    map=0
+#    while [ $map -lt $num_nodes ]
+#    do
       #For each NUMA node, find its CPU bounds and check if the CPU falls in it. If it does, pin the CPU to that NUMA node
-      map=$[$map+1]
-      lower=`echo ${node_map[$map]} | cut -d "-" -f1`
-      upper=`echo ${node_map[$map]} | cut -d "-" -f2`
-      if [ $position -ge $lower ] && [ $position -le $upper ]; then
-	discard=`sed -i "${cputune_line}i\ $wspace3<vcpupin vcpu='$position' cpuset='${node_map[$map]}'\/>" $domain`
-	map=$num_nodes
-      fi
-    done
+#      map=$[$map+1]
+#      lower=`echo ${node_map[$map]} | cut -d "-" -f1`
+#      upper=`echo ${node_map[$map]} | cut -d "-" -f2`
+#      if [ $position -ge $lower ] && [ $position -le $upper ]; then
+	discard=`sed -i "${cputune_line}i\ $wspace3<vcpupin vcpu='$position' cpuset='$position'\/>" $domain`}}
+#	map=$num_nodes
+#      fi
+#    done
     position=$[$position + 1]
   done
 elif [ $vm_cpus -eq $cores_per_node ]; then

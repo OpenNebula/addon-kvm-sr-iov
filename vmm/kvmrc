@@ -1,6 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2013, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod							     #
+# Copyright 2002-2016, OpenNebula Project, OpenNebula Systems                #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -13,9 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#                                                                            #
-# Adapted from the OpenNebula Project's KVM VMM kvmrc file                   #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
 export LANG=C
@@ -32,8 +28,23 @@ export SHUTDOWN_TIMEOUT=300
 
 # Uncomment this line to force VM's without ACPI enabled to be destroyed
 # on shutdown
-#export CANCEL_NO_ACPI=yes
+#CANCEL_NO_ACPI=yes
 
+# This parameter will set the default cache type for new attached disks. It
+# will be used in case the attached disk does not have an specific cache
+# method set (can be set using templates when attaching a disk).
+#DEFAULT_ATTACH_CACHE=none
+
+# Uncomment this line to set options for the virsh migrate command
+#MIGRATE_OPTIONS=--unsafe
+
+# IDE and SCSI disks always have the ability to issue "discard"
+# (aka TRIM or UNMAP) commands. However, by default "discard" commands are
+# silently ignored as they can cause performance degradation and fragmentation.
+# To enable them, the "-drive" option now supports a "discard" suboption; the
+# default value is "ignore" (or its synonym "off"), and the other valid value
+# is "unmap" (or "on").
+#DEFAULT_ATTACH_DISCARD=unmap
 export HPC_MODE=on
 
 # The CPU_PASSTHROUGH_THRESHOLD sets the number of vcpus at which the host cpu
@@ -42,7 +53,7 @@ export HPC_MODE=on
 # architecture.
 export CPU_PASSTHROUGH_THRESHOLD=20
 
-export VF_MAPS_PATH=/var/tmp/one/vmm/kvm-sriov/vf_maps
+export VF_MAPS_PATH=/var/vf_maps
 
 export DUMMY_BRIDGE=sriov_ib0
 
@@ -50,4 +61,3 @@ export DUMMY_MAC_PREFIX=aa
 
 # Set the driver mode to generic or mlnx_ofed2
 export DRIVER_MODE=mlnx_ofed2
-

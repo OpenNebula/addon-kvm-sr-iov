@@ -17,18 +17,23 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-## Set PATHs
-source $(dirname $0)/mlnxrc
+## Hooks arguments
+dirname=$(dirname $0)
+ID=$1
+PREV_STATE=$2
+PREV_LCM_STATE=$3
+TEMPLATE=$4
 
-## Name deploy_id ID
-deploy_id=$2
-
-#####  Decode the Template from base64 using files in tmp
-decodeTmp=$(echo $1 | base64 -d) 
+#####  Decode the Template from base64
+decodeTmp=$(echo $TEMPLATE | base64 -d) 
 neatTmp=$(echo $decodeTmp | xmllint --format -) 
+
 
 #### Extracts the BRIDGE and VLAN_ID froms the NICs found on the Template files
 bridge_vlan2=$(echo "$neatTmp" | awk '/NIC/, /\/NIC\>/ {gsub(/\!\[CDATA\[/, ""); gsub(/\]\]/, "");   print} {}' | grep -e AR_ID -e BRIDGE -e VLAN_ID | sed -e "s/<//g" | cut -d ">" -f1,2 |  sed -e "s/>/=/g" | awk '/AR_ID/{if (NR!=1)print "";next}{printf "%s ",$0}END{print "";}' | sed -e "s/       /-/g")
+
+## Name deploy_id ID
+deploy_id="one-$ID"
 
 ## Loop counters
 counter=0
@@ -63,16 +68,16 @@ for NIC in $bridge_vlan2; do
 
         ## Get the Device and Port from the bridge
         ibDev=$(echo "$name_bridge" | cut -d "_" -f2)
-        HCA_DEV=$(cat "$KVM_SRIOV_PATH/vf_maps/"$ibDev"_ofed" | grep device | cut -d " " -f2)
-        HCA_PORT=$(cat "$KVM_SRIOV_PATH/vf_maps/"$ibDev"_ofed" | grep port | cut -d " " -f4)
+        HCA_DEV=$(cat "$dirname/vf_maps/"$ibDev"_ofed" | grep device | cut -d " " -f2)
+        HCA_PORT=$(cat "$dirname/vf_maps/"$ibDev"_ofed" | grep port | cut -d " " -f4)
 
         ## Naming sudo files to apply_pkey_map on
 
         ## Conditions for assigning VLAN IDs
         if [ "$vlan_id" == "no_vlan" ]; then
           #If no VLAN is specified map the pkey to the hosts default
-            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 0 0
-            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 1 "none"
+            sudo "$dirname/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 0 0
+            sudo "$dirname/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 1 "none"
         else
           #If a VLAN is specified calculate its equivalent pkey
             
@@ -133,12 +138,12 @@ for NIC in $bridge_vlan2; do
            #05 If VLAN specified   
            if [ $key_found -eq 1 ]; then 
                #If a pkey match was found apply the vf map
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 0
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 $map_pos
+               sudo "$dirname/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 0
+               sudo "$dirname/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 $map_pos
            else
                #If the requested pkey was not found block the VM's IB port
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 "none"
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 "none"
+               sudo "$dirname/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 "none"
+               sudo "$dirname/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 "none"
            fi
 
         fi

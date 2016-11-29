@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2015, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod							     #
+# Copyright 2016, CSIR Centre for High Performance Computing                 #
+# Author: David Macleod                                                      #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -15,9 +15,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#									     #
-# Adapted from the OpenNebula Project's KVM VMM deploy script		     #
-# Copyright 2002-2013, OpenNebula Project (OpenNebula.org), C12G Labs        #
+#                                                                            #
+# Adapted from the OpenNebula Project's KVM VMM deploy script            #
+# Copyright 2002-2016, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
 source $(dirname $0)/kvmrc
@@ -65,7 +65,7 @@ if [ $sriov_ifaces -gt 0 ]; then
     if [ ! -d /dev/shm/vf_interfaces/${root_iface[$interface]} ]; then
         mkdir /dev/shm/vf_interfaces/${root_iface[$interface]}
     fi
- 
+
 #Build VF stanza for deployment
     vf_iface[$interface]=-1
     bus="0x00"
@@ -75,22 +75,22 @@ if [ $sriov_ifaces -gt 0 ]; then
     position=0
     if [ -d /dev/shm/vf_interfaces/${root_iface[$interface]} ]; then
 #Find an unused VF
-	while [ $position -lt $num_vf ] 
+        while [ $position -lt $num_vf ]
         do
 #If a free VF is found load its device address info and mark as used
-	    if [ ! -f "/dev/shm/vf_interfaces/${root_iface[$interface]}/$position" ]; then    
-		bus=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f1`
-	        slot=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f2`
-	        function=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f3`
-	        vf_iface[$interface]=$position
-	        touch /dev/shm/vf_interfaces/${root_iface[$interface]}/$position
-		mellanox_bus=`echo $bus | cut -c 3-`
-		mellanox_slot=`echo $slot | cut -c 3-`
-		mellanox_function=`echo $function | cut -c 4-`
-		mellanox_address[$interface]="0000:"$mellanox_bus":"$mellanox_slot"."$mellanox_function
-	        position=$num_vf
-	    fi
-	    position=$[$position + 1]
+            if [ ! -f "/dev/shm/vf_interfaces/${root_iface[$interface]}/$position" ]; then
+                bus=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f1`
+                slot=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f2`
+                function=`sed "$[$position + 1] q;d" $VF_MAPS_PATH/${root_iface[$interface]} | cut -d " " -f3`
+                vf_iface[$interface]=$position
+                touch /dev/shm/vf_interfaces/${root_iface[$interface]}/$position
+                mellanox_bus=`echo $bus | cut -c 3-`
+                mellanox_slot=`echo $slot | cut -c 3-`
+                mellanox_function=`echo $function | cut -c 4-`
+                mellanox_address[$interface]="0000:"$mellanox_bus":"$mellanox_slot"."$mellanox_function
+                position=$num_vf
+            fi
+            position=$[$position + 1]
         done
     fi
 
@@ -126,7 +126,7 @@ if [ $sriov_ifaces -gt 0 ]; then
           count=$[$count - 1]
           discard=$(sed -i "${top_line}d" $domain)
         done
-#Calculate MAC with SR-IOV prefix      
+#Calculate MAC with SR-IOV prefix
       dummymac=$(echo $setmac | cut -c 7-)
       dummymac=$DUMMY_MAC_PREFIX":0"$[$interface - 1]":"$dummymac
 #Write SR-IOV device stanza
@@ -140,12 +140,12 @@ if [ $sriov_ifaces -gt 0 ]; then
           discard=$(sed -i "${line}i\ $wspace<interface type='bridge'>\\n$wspace1<source bridge='$DUMMY_BRIDGE'/>\\n$wspace1<mac address='$dummymac'/>\\n$wspace</interface>" $domain)
         else
           discard=$(sed -i "${line}i\ $wspace<interface type='bridge'>\\n$wspace1<source bridge='$DUMMY_BRIDGE'/>\\n$wspace1<virtualport type='openvswitch'/>\\n$wspace1<mac address='$dummymac'/>\\n$wspace</interface>" $domain)
-	fi
+        fi
       elif [ $DRIVER_MODE == "mlnx_ofed2" ]; then
-	echo "$dummymac" > /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
-	HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
-	HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
-	sudo $(dirname $0)/sbin/wr_guid.sh $dummymac ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
+        echo "$dummymac" > /dev/shm/vf_interfaces/${root_iface[$interface]}/${vf_iface[$interface]}
+        HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+        HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
+        sudo $(dirname $0)/sbin/wr_guid.sh $dummymac ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
       fi
     fi
   done
@@ -157,14 +157,14 @@ if [ "x$?" = "x0" ]; then
     echo $data | sed 's/Domain //' | sed 's/ created from .*$//'
 else
     error_message "Could not create domain from $domain"
-#If deployment fails remove any locks on SR-IOV devices that have been assigned    
+#If deployment fails remove any locks on SR-IOV devices that have been assigned
     if [ $sriov_ifaces -gt 0 ]; then
       interface=0
       while [ $interface -lt $sriov_ifaces ]
       do
         interface=$[$interface + 1]
-	if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
-	  HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
+        if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+          HCA_DEV=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep device | awk '{print $2}'`
           HCA_PORT=`cat $VF_MAPS_PATH/${root_iface[$interface]}_ofed | grep port | awk '{print $2}'`
           sudo $(dirname $0)/sbin/wr_guid.sh clear_guid ${vf_iface[$interface]} $HCA_DEV $HCA_PORT ${mellanox_address[$interface]}
         fi
@@ -175,4 +175,3 @@ else
     fi
     exit -1
 fi
-
