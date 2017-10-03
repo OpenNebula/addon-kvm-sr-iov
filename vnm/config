@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # -------------------------------------------------------------------------- #
 # Copyright 2002-2017, OpenNebula Project, OpenNebula Systems                #
 #                                                                            #
@@ -16,4 +14,8 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-exit 0
+# Absolute path to active vmm (kvm-sriov) driver
+export KVM_SRIOV_PATH=/var/tmp/one/vmm/kvm-sriov/
+
+# Path to datastores
+export DATASTORE_PATH=/var/lib/one/datastores/

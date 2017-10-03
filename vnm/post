@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2016, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod, Israel Tshililo, Bryan Johnston                     #
+# Copyright 2016-2017, CSIR Centre for High Performance Computing                 #
+# Author: Israel Tshililo & David Macleod                                    #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -17,18 +17,19 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-## Set PATHs
-source $(dirname $0)/mlnxrc
 
-## Name deploy_id ID
+source $(dirname $0)/config
 deploy_id=$2
 
-#####  Decode the Template from base64 using files in tmp
+# Decode and refomart the Opennebula template from base64
 decodeTmp=$(echo $1 | base64 -d) 
 neatTmp=$(echo $decodeTmp | xmllint --format -) 
 
-#### Extracts the BRIDGE and VLAN_ID froms the NICs found on the Template files
-bridge_vlan2=$(echo "$neatTmp" | awk '/NIC/, /\/NIC\>/ {gsub(/\!\[CDATA\[/, ""); gsub(/\]\]/, "");   print} {}' | grep -e AR_ID -e BRIDGE -e VLAN_ID | sed -e "s/<//g" | cut -d ">" -f1,2 |  sed -e "s/>/=/g" | awk '/AR_ID/{if (NR!=1)print "";next}{printf "%s ",$0}END{print "";}' | sed -e "s/       /-/g")
+## Get the ID from template
+ID=$(echo $deploy_id | cut -d "-" -f2)
+
+## Extracts the BRIDGE and VLAN_ID froms the NICs found on the Template files
+bridge_vlan2=$(echo "$neatTmp" | awk '/NIC/, /\/NIC\>/ {gsub(/\!\[CDATA\[/, ""); gsub(/\]\]/, "");   print} {}' | grep -e AR_ID -e BRIDGE -e VLAN_ID -e MAC | sed -e "s/<//g" | cut -d ">" -f1,2 |  sed -e "s/>/=/g" | awk '/AR_ID/{if (NR!=1)print "";next}{printf "%s ",$0}END{print "";}' | sed -e "s/       /-/g")
 
 ## Loop counters
 counter=0
@@ -39,6 +40,7 @@ for NIC in $bridge_vlan2; do
     ## Check for VLANs
     VlanInfo=$(echo "$NIC" | grep "VLAN_ID")
     name_bridge=$(echo "$NIC" | cut -d "-" -f1 | cut -d "=" -f2)
+    mac_add=$(echo "$NIC" | cut -d "-" -f2 | cut -d "=" -f2)
     vlan_id="no_vlan"
 
     if [ -z $VlanInfo]; then
@@ -46,7 +48,7 @@ for NIC in $bridge_vlan2; do
     	vlan_id="no_vlan"
     else
       ## Get the VLAN ID
-        vlan_id=$(echo "$NIC" | cut -d "-" -f2| cut -d "=" -f2)
+        vlan_id=$(echo "$NIC" | cut -d "-" -f3| cut -d "=" -f2)
     fi
    
     ## Checks for virtual functions (sriov)
@@ -71,8 +73,8 @@ for NIC in $bridge_vlan2; do
         ## Conditions for assigning VLAN IDs
         if [ "$vlan_id" == "no_vlan" ]; then
           #If no VLAN is specified map the pkey to the hosts default
-            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 0 0
-            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 1 "none"
+            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 0 0 $vlan_id $mac_add
+            sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh" $address $HCA_DEV $HCA_PORT 1 "none" $vlan_id $mac_add
         else
           #If a VLAN is specified calculate its equivalent pkey
             
@@ -133,12 +135,12 @@ for NIC in $bridge_vlan2; do
            #05 If VLAN specified   
            if [ $key_found -eq 1 ]; then 
                #If a pkey match was found apply the vf map
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 0
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 $map_pos
+               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 0 $vlan_id $mac_add
+               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 $map_pos $vlan_id $mac_add
            else
                #If the requested pkey was not found block the VM's IB port
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 "none"
-               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 "none"
+               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 1 "none" $vlan_id $mac_add
+               sudo "$KVM_SRIOV_PATH/sbin/wr_pkey_map.sh"  $address $HCA_DEV $HCA_PORT 0 "none" $vlan_id $mac_add
            fi
 
         fi
