@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2016, OpenNebula Project, OpenNebula Systems                #
+# Copyright 2002-2017, OpenNebula Project, OpenNebula Systems                #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -45,6 +45,12 @@ export SHUTDOWN_TIMEOUT=300
 # default value is "ignore" (or its synonym "off"), and the other valid value
 # is "unmap" (or "on").
 #DEFAULT_ATTACH_DISCARD=unmap
+
+# This parameters will set the default NIC model and filter for
+# # the hot-attached interfaces.
+# #DEFAULT_ATTACH_NIC_MODEL=virtio
+# #DEFAULT_ATTACH_NIC_FILTER=clean-traffic
+
 export HPC_MODE=on
 
 # The CPU_PASSTHROUGH_THRESHOLD sets the number of vcpus at which the host cpu
@@ -53,7 +59,7 @@ export HPC_MODE=on
 # architecture.
 export CPU_PASSTHROUGH_THRESHOLD=20
 
-export VF_MAPS_PATH=/var/vf_maps
+export VF_MAPS_PATH=/data/vf_maps
 
 export DUMMY_BRIDGE=sriov_ib0
 
@@ -61,3 +67,6 @@ export DUMMY_MAC_PREFIX=aa
 
 # Set the driver mode to generic or mlnx_ofed2
 export DRIVER_MODE=mlnx_ofed2
+
+# Hostname for server running opensm
+export SM_HOST=headnode

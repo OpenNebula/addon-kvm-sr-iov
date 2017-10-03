@@ -16,15 +16,39 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+DOMAIN=$1
+DISK_ID=$2
+DISK_SIZE=$3
+DRV_ACTION=$4
+
 source $(dirname $0)/kvmrc
 source $(dirname $0)/../../scripts_common.sh
 
-DOMAIN=$1
-TARGET_DEVICE=$2
-ISO_PATH=$3
+(
+set -e
 
-CMD="virsh --connect $LIBVIRT_URI \
-     change-media $DOMAIN $TARGET_DEVICE $ISO_PATH --insert"
+get_disk_information "DISK_ID=$DISK_ID"
 
-exec_and_log "$CMD" "Could not insert CDROM $ISO_PATH to $TARGET_DEVICE"
+regexp="/domain/devices/disk[target/@dev='${DISK_TARGET}']/alias/@name"
+
+drives="virsh --connect $LIBVIRT_URI dumpxml $DOMAIN"
+alias=$($drives | $XPATH --stdin "$regexp")
+
+if [ -n "$alias" ]; then
+    drive="drive-$alias"
+else
+    error_message "Drive $DISK_TARGET not found"
+    exit -1
+fi
+
+log_info "Resizing $DISK_TARGET to $DISK_SIZE"
+
+virsh --connect $LIBVIRT_URI qemu-monitor-command $DOMAIN --hmp "block_resize $drive ${DISK_SIZE}M"
+
+) > /dev/null
+
+if [ $? -ne 0 ]; then
+    echo "Could not notify the VM about the disk resize. Poweroff cycle needed."
+fi
+
 
