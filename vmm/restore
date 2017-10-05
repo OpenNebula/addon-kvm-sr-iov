@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2016, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod                                                      #
+# Copyright 2002-2017, OpenNebula Project, OpenNebula Systems                #
+# Author: David Macleod & Israel Tshililo                                    #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -15,9 +15,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#                                                                            #
-# Adapted from the OpenNebula Project's KVM VMM restore script            #
-# Copyright 2002-2016, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
 DRIVER_PATH=$(dirname $0)
@@ -125,30 +122,30 @@ else
 # Handle DRV_MESSAGE coming from stdin
 #-------------------------------------------------------------------------------
 
-  if [ ! -t 0 ]; then
-      # There is data in stdin, read it
-      DRV_MESSAGE=$(cat)
+if [ ! -t 0 ]; then
+    # There is data in stdin, read it
+    DRV_MESSAGE=$(cat)
 
-      # The data is the driver message. Extracting the System DS TM_MAD
-      XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
-      TM_MAD=$(echo "$DRV_MESSAGE" | $XPATH /VMM_DRIVER_ACTION_DATA/DATASTORE/TM_MAD)
+    # The data is the driver message. Extracting the System DS TM_MAD
+    XPATH="${DRIVER_PATH}/../../datastore/xpath.rb --stdin"
+    TM_MAD=$(echo "$DRV_MESSAGE" | $XPATH /VMM_DRIVER_ACTION_DATA/DATASTORE/TM_MAD)
 
-      # If there is a specific hook for this TM_MAD call it:
-      RESTORE_TM_FILE="${DRIVER_PATH}/restore.${TM_MAD}"
+    # If there is a specific hook for this TM_MAD call it:
+    RESTORE_TM_FILE="${DRIVER_PATH}/restore.${TM_MAD}"
 
-      if [ -x "$RESTORE_TM_FILE" ]; then
-          echo "$DRV_MESSAGE" | $RESTORE_TM_FILE $@
-      fi
-  fi
+    if [ -x "$RESTORE_TM_FILE" ]; then
+        echo "$DRV_MESSAGE" | $RESTORE_TM_FILE $@
+    fi
+fi
 
-  # Checkpoint file: /var/lib/one//datastores/<DS_ID>/<VM_ID>/checkpoint
+# Checkpoint file: /var/lib/one//datastores/<DS_ID>/<VM_ID>/checkpoint
 
-  DS_ID=$(basename $(dirname $(dirname $FILE)))
-  DS_LOCATION=$(dirname $(dirname $(dirname $FILE)))
-  DS_LOCATION_NON_DOUBLE_SLASH=$(echo "$DS_LOCATION" | sed 's|//|/|g')
+DS_ID=$(basename $(dirname $(dirname $FILE)))
+DS_LOCATION=$(dirname $(dirname $(dirname $FILE)))
+DS_LOCATION_NON_DOUBLE_SLASH=$(echo "$DS_LOCATION" | sed 's|//|/|g')
 
-  RECALCULATE_CMD=$(cat <<EOF
-set -e
+RECALCULATE_CMD=$(cat <<EOF
+set -e -o pipefail
 
 # extract the xml from the checkpoint
 
@@ -163,14 +160,14 @@ sed -i "s%$DS_LOCATION_NON_DOUBLE_SLASH/[0-9]\+/$VMID/%$DS_LOCATION/$DS_ID/$VMID
 EOF
 )
 
-  multiline_exec_and_log "$RECALCULATE_CMD" \
-      "Could not recalculate paths in $FILE_XML"
+multiline_exec_and_log "$RECALCULATE_CMD" \
+    "Could not recalculate paths in $FILE_XML"
 
-  exec_and_log_no_exit "virsh --connect $LIBVIRT_URI restore $FILE --xml $FILE_XML" \
-      "Could not restore from $FILE"
+exec_and_log_no_exit "virsh --connect $LIBVIRT_URI restore $FILE --xml $FILE_XML" \
+    "Could not restore from $FILE"
 
-  rm "$FILE"
-  rm "$FILE_XML"
+rm "$FILE"
+rm "$FILE_XML"
 
   if [ $exit_code -eq 0 ]; then
 #If success, attach VFs
@@ -211,4 +208,5 @@ EOF
     exit $exit_code
   fi
 fi
+
 

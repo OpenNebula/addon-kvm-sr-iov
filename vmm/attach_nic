@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2016, CSIR Centre for High Performance Computing                 #
-# Author: David Macleod                                                      #
+# Copyright 2002-2017, OpenNebula Project, OpenNebula Systems                #
+# Author: David Macleod & Israel Tshililo                                   #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -15,98 +15,162 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
-#                                                                            #
-# Adapted from the OpenNebula Project's KVM VMM attach_nic script            #
-# Copyright 2002-2016, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #--------------------------------------------------------------------------- #
 
 source $(dirname $0)/kvmrc
 source $(dirname $0)/../../scripts_common.sh
 
 DOMAIN=$1
-MAC=$2
-BRIDGE=$3
-THE_MODEL=$4
-NET_DRV=$5
-TARGET=$6
 
-#If SR-IOV interface
-vf_interface=`echo $BRIDGE | grep sriov | wc -l`
-if [ $vf_interface -gt 0 ]; then
-#Make sure VF tracking dir exists
-  if [ ! -d /dev/shm/vf_interfaces ]; then
-      mkdir /dev/shm/vf_interfaces
-  fi
-  ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
-  if [ $ovs_installed -gt 0 ]; then
-    ovs_bridge=`sudo ovs-vsctl show | grep $BRIDGE | wc -l `
-  else
-    ovs_bridge=0
-  fi
+get_nic_information "ATTACH='YES'"
 
-#Build VF info
-  MAC=$(echo $MAC | cut -c 7-)
-  MAC=$DUMMY_MAC_PREFIX":10:"$MAC
+# defaults
+[ -z "${MODEL}" ] && [ -n "${DEFAULT_ATTACH_NIC_MODEL}" ] && \
+    MODEL="${DEFAULT_ATTACH_NIC_MODEL}"
 
-  root_iface=`echo $BRIDGE | cut -d "_" -f2`
+[ -z "${FILTER}" ] && [ -n "${DEFAULT_ATTACH_NIC_FILTER}" ] && \
+    FILTER="${DEFAULT_ATTACH_NIC_FILTER}"
 
-  vf=`$(dirname $0)/wr_dev $root_iface /dev/shm/ attach $MAC`
-  vf_iface=`echo $vf | cut -d ' ' -f4`
-#Attach VF is available
-  if [ $vf_iface -eq -1 ]; then
-    error_message "No free VF!"
-    exit -1
-  else
+# functions
+# functions
+function xml_esc
+{
+   R=${1//\'/&apos;}
+   R=${R//\"/&quot;}
+   R=${R//\&/&amp;}
+   R=${R//\</&lt;}
+   R=${R//\>/&gt;}
+   echo "${R}"
+}
 
-    if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
-      HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
-      HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
-      bus=`echo $vf | cut -d ' ' -f1`
-      slot=`echo $vf | cut -d ' ' -f2`
-      function=`echo $vf | cut -d ' ' -f3`
+# interface XML
+DEVICE=''
 
-      mellanox_bus=`echo $bus | cut -c 3-`
-      mellanox_slot=`echo $slot | cut -c 3-`
-      mellanox_function=`echo $function | cut -c 4-`
-      mellanox_address="0000":$mellanox_bus":"$mellanox_slot"."$mellanox_function
+if [ -z "${BRIDGE}" ]; then
+    DEVICE+="<interface type='ethernet'>"
+else
+    DEVICE+="<interface type='bridge'>"
+    [ "${VN_MAD}" = 'ovswitch' ] && DEVICE+=" <virtualport type='openvswitch'/>"
+    DEVICE+=" <source bridge='$(xml_esc "${BRIDGE}")'/>"
+fi
 
-      sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT $mellanox_address
-      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
-    elif [ $DRIVER_MODE == "generic" ]; then
-      ATTACH_ARGS="--domain $DOMAIN --type bridge --source $BRIDGE --mac $MAC"
-      if [ "$MODEL" != "-" ]; then
-        ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
-      fi
-      discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
-      exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
-          "Could not attach NIC ($MAC) to $DOMAIN"
+[ -n "${MAC}" ] && DEVICE+=" <mac address='$(xml_esc "${MAC}")'/>"
+[ -n "${NIC_TARGET}" ] && DEVICE+=" <target dev='$(xml_esc "${NIC_TARGET}")'/>"
+[ -n "${ORDER}" ] && DEVICE+=" <boot order='$(xml_esc "${ORDER}")'/>"
+[ -n "${SCRIPT}" ] && DEVICE+=" <script path='$(xml_esc "${SCRIPT}")'/>"
+[ -n "${MODEL}" ] && DEVICE+=" <model type='$(xml_esc "${MODEL}")'/>"
+
+if [ -n "${IP}" ] && [ -n "${FILTER}" ]; then
+    DEVICE+=" <filterref filter='$(xml_esc "${FILTER}")'>"
+    DEVICE+=" <parameter name='IP' value='$(xml_esc "${IP}")'/>"
+    [ -n "${VROUTER_IP}" ] && DEVICE+=" <parameter name='IP' value='$(xml_esc "${VROUTER_IP}")'/>"
+    DEVICE+=" </filterref>"
+fi
+
+if [ -n "${INBOUND_AVG_BW}${INBOUND_PEAK_BW}${INBOUND_PEAK_KB}" ] || \
+   [ -n "${OUTBOUND_AVG_BW}${OUTBOUND_PEAK_BW}${OUTBOUND_PEAK_KB}" ];
+then
+    DEVICE+=" <bandwidth>"
+
+    if [ -n "${INBOUND_AVG_BW}${INBOUND_PEAK_BW}${INBOUND_PEAK_KB}" ]; then
+        DEVICE+=" <inbound"
+
+        [ -n "${INBOUND_AVG_BW}" ] && \
+            DEVICE+=" average='$(xml_esc "${INBOUND_AVG_BW}")'"
+        [ -n "${INBOUND_PEAK_BW}" ] && \
+            DEVICE+=" peak='$(xml_esc "${INBOUND_PEAK_BW}")'"
+        [ -n "${INBOUND_PEAK_KB}" ] && \
+            DEVICE+=" burst='$(xml_esc "${INBOUND_PEAK_KB}")'"
+
+        DEVICE+=" />"
     fi
 
-    rm /dev/shm/device.attach
+    if [ -n "${OUTBOUND_AVG_BW}${OUTBOUND_PEAK_BW}${OUTBOUND_PEAK_KB}" ]; then
+        DEVICE+=" <outbound"
+
+        [ -n "${OUTBOUND_AVG_BW}" ] && \
+            DEVICE+=" average='$(xml_esc "${OUTBOUND_AVG_BW}")'"
+        [ -n "${OUTBOUND_PEAK_BW}" ] && \
+            DEVICE+=" peak='$(xml_esc "${OUTBOUND_PEAK_BW}")'"
+        [ -n "${OUTBOUND_PEAK_KB}" ] && \
+            DEVICE+=" burst='$(xml_esc "${OUTBOUND_PEAK_KB}")'"
+
+        DEVICE+=" />"
+    fi
+
+    DEVICE+=" </bandwidth>"
+fi
+
+DEVICE+=" </interface>"
+
+# Check the network brigde
+BRIDGE=$(echo $DEVICE | sed -e 's/[<>,/,]//g' | cut -d ' ' -f4 | cut -d '=' -f2 | sed "s/'//g")
+
+## If it's a SRIOV interface
+if [ $BRIDGE == "sriov_ib0" ]; then
+  
+  ##Get the number of VF
+  vf_interface=`echo $BRIDGE | grep sriov | wc -l`
+  if [ $vf_interface -gt 0 ]; then
+  #Make sure VF tracking dir exists
+    if [ ! -d /dev/shm/vf_interfaces ]; then
+        mkdir /dev/shm/vf_interfaces
+    fi
+    ovs_installed=`whereis ovs-vsctl | cut -d ":" -f2 | grep ovs-vsctl | wc -l`
+    if [ $ovs_installed -gt 0 ]; then
+      ovs_bridge=`sudo ovs-vsctl show | grep $BRIDGE | wc -l `
+    else
+      ovs_bridge=0
+    fi
+  
+  #Build VF info
+    MAC=$(echo $MAC | cut -c 7-)
+    MAC=$DUMMY_MAC_PREFIX":10:"$MAC
+  
+    root_iface=`echo $BRIDGE | cut -d "_" -f2`
+  
+    vf=`$(dirname $0)/wr_dev $root_iface /dev/shm/ attach $MAC`
+    vf_iface=`echo $vf | cut -d ' ' -f4`
+  #Attach VF is available
+    if [ $vf_iface -eq -1 ]; then
+      error_message "No free VF!"
+      exit -1
+    else
+  
+      if [ $DRIVER_MODE == "mlnx_ofed2" ]; then
+        HCA_DEV=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep device | awk '{print $2}'`
+        HCA_PORT=`cat $VF_MAPS_PATH/${root_iface}_ofed | grep port | awk '{print $2}'`
+        bus=`echo $vf | cut -d ' ' -f1`
+        slot=`echo $vf | cut -d ' ' -f2`
+        function=`echo $vf | cut -d ' ' -f3`
+  
+        mellanox_bus=`echo $bus | cut -c 3-`
+        mellanox_slot=`echo $slot | cut -c 3-`
+        mellanox_function=`echo $function | cut -c 4-`
+        mellanox_address="0000":$mellanox_bus":"$mellanox_slot"."$mellanox_function
+  
+        sudo $(dirname $0)/sbin/wr_guid.sh $MAC $vf_iface $HCA_DEV $HCA_PORT $mellanox_address
+        discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
+      elif [ $DRIVER_MODE == "generic" ]; then
+        ATTACH_ARGS="--domain $DOMAIN --type bridge --source $BRIDGE --mac $MAC"
+        if [ "$MODEL" != "-" ]; then
+          ATTACH_ARGS="$ATTACH_ARGS --model $MODEL"
+        fi
+        discard=$(virsh --connect $LIBVIRT_URI attach-device $DOMAIN /dev/shm/device.attach)
+        exec_and_log "virsh --connect $LIBVIRT_URI attach-interface $ATTACH_ARGS" \
+            "Could not attach NIC ($MAC) to $DOMAIN"
+      fi
+  
+      rm /dev/shm/device.attach
+    fi
+    BRIDGE=$DUMMY_BRIDGE
   fi
-  BRIDGE=$DUMMY_BRIDGE
+
 else
-
-  if [ "$THE_MODEL" != "-" ]; then
-      MODEL="<model type='$THE_MODEL'/>"
-  fi
-
-  if [ "$NET_DRV" = "ovswitch" ]; then
-      VIRTUALPORT="<virtualport type='openvswitch'/>"
-  fi
-
-  DEVICE=$(cat <<EOF
-<interface type='bridge'>
-    <source bridge='$BRIDGE'/>
-    <mac address='$MAC'/>
-    <target dev='$TARGET'/>
-    $MODEL
-    $VIRTUALPORT
-</interface>
-EOF
-)
-
-  ATTACH_CMD=$(cat <<EOF
+ 
+# functions
+# device attach
+ATTACH_CMD=$(cat <<EOF
 virsh --connect $LIBVIRT_URI attach-device $DOMAIN <(
 cat <<EOT
 $DEVICE
@@ -116,5 +180,6 @@ EOF
 )
 
   multiline_exec_and_log "$ATTACH_CMD" \
-    "Could not attach $SOURCE ($TARGET) to $DOMAIN"
+      "Could not attach NIC ${NIC_ID} ($MAC) to $DOMAIN"
+
 fi
